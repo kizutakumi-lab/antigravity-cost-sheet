@@ -68,7 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // Google API クライアントの初期化起動
   gapi.load('client', initGapiClient);
   
-  // 🌟 構文エラーを修正しました
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: SCOPES,
@@ -95,6 +94,7 @@ async function initGapiClient() {
   });
 }
 
+// 認証・同期
 function handleAuthClick() {
   if (googleAccessToken === null) {
     tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -109,7 +109,6 @@ function handleAuthClick() {
 
 async function syncFromGoogleSheets() {
   try {
-    // シートのA1セルからデータを読み込む
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Sheet1!A1',
@@ -123,7 +122,7 @@ async function syncFromGoogleSheets() {
     renderProjectGrid();
   } catch (err) {
     console.error("Sheets同期エラー:", err);
-    alert("社内データベースとの同期に失敗しました。対象スプレッドシートへのアクセス権限、またはGoogle Cloudのスコープ設定を確認してください。");
+    alert("社内データベースとの同期に失敗しました。対象スプレッドシートのタブ名が「Sheet1」になっているか、またアクセス権限を確認してください。");
   }
 }
 
@@ -136,7 +135,6 @@ async function syncToGoogleSheets() {
   const jsonStr = JSON.stringify(allProjectsInMemory);
   
   try {
-    // シートのA1セルにデータを丸ごと上書き
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: 'Sheet1!A1',
@@ -513,18 +511,82 @@ function saveCurrentPlanState() {
   };
 }
 
+// 🌟 インライン名前変更（ファイル名変更と同じ挙動）を組み込んだ最新レンダラー
 function renderTabs() {
   const tabsBar = document.getElementById("tabs_bar");
   if (!tabsBar || !currentProject) return;
   tabsBar.innerHTML = "";
+
   currentProject.plans.forEach((plan, idx) => {
     const tab = document.createElement("button");
     tab.className = `tab-item ${idx === currentProject.activePlanIndex ? "active" : ""}`;
     tab.type = "button";
-    tab.innerHTML = `<span class="tab-text">${escapeHtml(plan.planName)}</span>${currentProject.plans.length > 1 ? '<span class="tab-close">✕</span>' : ''}`;
-    tab.addEventListener("click", (e) => { if (!e.target.classList.contains("tab-close")) switchPlan(idx); });
-    tab.addEventListener("dblclick", () => { const newName = prompt("パターン名入力:", plan.planName); if (newName?.trim()) { plan.planName = newName.trim(); renderTabs(); renderComparisonSummary(); } });
-    if (currentProject.plans.length > 1) tab.querySelector(".tab-close").addEventListener("click", (e) => { e.stopPropagation(); removePlan(idx); });
+    
+    tab.innerHTML = `
+      <span class="tab-text-view">${escapeHtml(plan.planName)}</span>
+      <input type="text" class="tab-text-input d-none" value="${escapeAttr(plan.planName)}">
+      ${currentProject.plans.length > 1 ? '<span class="tab-close">✕</span>' : ''}
+    `;
+
+    const textView  = tab.querySelector(".tab-text-view");
+    const textInput = tab.querySelector(".tab-text-input");
+
+    function startRename() {
+      if (idx !== currentProject.activePlanIndex) return;
+      textView.classList.add("d-none");
+      textInput.classList.remove("d-none");
+      textInput.focus();
+      textInput.select();
+    }
+
+    tab.addEventListener("dblclick", (e) => {
+      if (e.target.classList.contains("tab-close")) return;
+      startRename();
+    });
+
+    tab.addEventListener("click", (e) => {
+      if (e.target.classList.contains("tab-close")) return;
+      if (idx === currentProject.activePlanIndex && !textInput.classList.contains("d-none")) return;
+      
+      if (idx === currentProject.activePlanIndex) {
+        startRename();
+      } else {
+        switchPlan(idx);
+      }
+    });
+
+    function finishRename() {
+      const newName = textInput.value.trim();
+      if (newName) {
+        plan.planName = newName;
+      }
+      saveCurrentPlanState();
+      renderTabs();
+      renderComparisonSummary();
+      syncToGoogleSheets(); 
+    }
+
+    textInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishRename();
+      }
+      if (e.key === "Escape") {
+        textInput.value = plan.planName;
+        textView.classList.remove("d-none");
+        textInput.classList.add("d-none");
+      }
+    });
+
+    textInput.addEventListener("blur", finishRename);
+
+    if (currentProject.plans.length > 1) {
+      tab.querySelector(".tab-close").addEventListener("click", (e) => {
+        e.stopPropagation();
+        removePlan(idx);
+      });
+    }
+
     tabsBar.appendChild(tab);
   });
 }
@@ -596,8 +658,6 @@ function saveProjectData() {
   }
 
   document.getElementById("btn_save").textContent = "💾 案件を上書き保存する";
-  
-  // 🌟 スプレッドシートの共通DBへ自動上書き同期
   syncToGoogleSheets();
   alert("案件を社内共有データベースに保存しました。");
 }

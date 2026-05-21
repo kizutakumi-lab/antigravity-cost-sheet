@@ -7,7 +7,7 @@
   --bg-card:     #ffffff;
   --text:        #1e293b;
   --text-muted:  #64748b;
-  --border:      #94a3b8; /* 枠線を少し濃くして見やすく */
+  --border:      #94a3b8;
   --border-lt:   #cbd5e1;
 
   --primary:       #2563eb;
@@ -207,7 +207,7 @@ body {
 
 .project-card-metrics {
   display: grid;
-  grid-template-columns: 1fr; /* 横幅一杯にしてフル金額を表示 */
+  grid-template-columns: 1fr;
   gap: 6px;
 }
 
@@ -239,7 +239,7 @@ body {
   padding-top: 12px;
 }
 
-/* 収支状態の色（カード内メトリクス） */
+/* 収支状態の色 */
 .val-good     { color: #166534; }
 .val-warning  { color: #92400e; }
 .val-danger   { color: #c2410c; }
@@ -379,7 +379,7 @@ body {
 }
 
 /* ================================================================ */
-/* 🌟 パターン・タブバー関連のUI刷新                                 */
+/* パターン・タブバー関連のUI                                       */
 /* ================================================================ */
 
 .tabs-wrap {
@@ -404,7 +404,6 @@ body {
   flex-wrap: wrap;
 }
 
-/* タブをはっきりとした「ボタン風」デザインに */
 .tab-item {
   display: inline-flex;
   align-items: center;
@@ -428,7 +427,6 @@ body {
   color: var(--text);
 }
 
-/* アクティブなタブボタン */
 .tab-item.active {
   background: var(--primary);
   color: #ffffff;
@@ -438,7 +436,6 @@ body {
   box-shadow: 0 -2px 6px rgba(37,99,235,0.2);
 }
 
-/* タブ内の削除✕ボタンも明確な独立したボタンに */
 .tab-close {
   display: inline-flex;
   align-items: center;
@@ -611,12 +608,12 @@ body {
 .table-totals strong { color: var(--primary); font-weight: 700; }
 
 /* ================================================================ */
-/* 🌟 入力フィールド（常に枠線を表示・分かりやすく白背景化）          */
+/* 入力フィールド（常に枠線を表示）                                   */
 /* ================================================================ */
 
 .table-input {
-  border: 1px solid var(--border) !important; /* 常に枠線を表示 */
-  background: #ffffff !important;           /* 常に白背景にして入力欄と明示 */
+  border: 1px solid var(--border) !important;
+  background: #ffffff !important;
   padding: 6px 8px;
   font-family: var(--font);
   font-size: 0.88rem;
@@ -630,7 +627,6 @@ body {
   box-shadow: 0 0 0 2px rgba(37,99,235,.15);
 }
 
-/* 読み取り専用（自動計算フィールドなど） */
 .table-input[readonly] {
   background: #e2e8f0 !important;
   color: #475569;
@@ -789,7 +785,7 @@ body {
 
 .summary-item.main .summary-value {
   font-size: 1.3rem;
-  color: #38bdf8; /* 金額を目立たせる */
+  color: #38bdf8;
 }
 
 .summary-section-label {
@@ -866,3 +862,16 @@ body {
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
+
+/* 🌟 タブ内編集ボックスのデザイン */
+.tab-text-input {
+  font-family: var(--font);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  color: var(--text);
+  outline: none;
+  width: 120px;
+}
