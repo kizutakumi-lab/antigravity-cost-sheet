@@ -67,14 +67,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Google API クライアントの初期化起動
   gapi.load('client', initGapiClient);
+  
+  // 🌟 構文エラーを修正しました
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: SCOPES,
-   callback: (resp) => {
+    callback: (resp) => {
       if (resp.error) return;
       googleAccessToken = resp.access_token;
       
-      // 🌟【ここを追加】gapiクライアントにアクセストークンを明示的にセット
+      // 🌟 gapiクライアントにアクセストークンを明示的にセット
       gapi.client.setToken({ access_token: googleAccessToken });
       
       document.getElementById("btn_google_auth").textContent = "✅ 社内DB同期中";
@@ -82,12 +84,12 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("btn_google_auth").style.color = "#fff";
       syncFromGoogleSheets();
     },
+  });
 
   showTopView();
 });
 
 async function initGapiClient() {
-  // discoveryDocs の指定方法を、より確実な完全URL形式に変更
   await gapi.client.init({ 
     discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"]
   });
@@ -121,7 +123,7 @@ async function syncFromGoogleSheets() {
     renderProjectGrid();
   } catch (err) {
     console.error("Sheets同期エラー:", err);
-    alert("社内データベースとの同期に失敗しました。対象スプレッドシートへのアクセス権限があるか確認してください。");
+    alert("社内データベースとの同期に失敗しました。対象スプレッドシートへのアクセス権限、またはGoogle Cloudのスコープ設定を確認してください。");
   }
 }
 
@@ -439,7 +441,6 @@ function calculateAndDisplay() {
   renderComparisonSummary();
 }
 
-// 収支判定のしきい値に応じたクラス・文言の付与
 function updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin) {
   const pt = document.getElementById("project_type")?.value || "制作";
   const th = TYPE_THRESHOLDS[pt] || TYPE_THRESHOLDS["制作"];
@@ -654,6 +655,7 @@ function importProjectJSON(event) {
   reader.readAsText(file);
 }
 
+// ユーティリティ
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 function escapeHtml(str) { return str ? str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") : ""; }
 function escapeAttr(str) { return str ? str.replace(/"/g, "&quot;") : ""; }
