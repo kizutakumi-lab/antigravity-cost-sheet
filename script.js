@@ -40,12 +40,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const dateEl = document.getElementById("record_date");
   if (dateEl) dateEl.value = todayStr();
 
-  // 🌟「保存ボタン」のイベントを削除（自動保存化のため）
+  // イベント登録
   document.getElementById("btn_google_auth").addEventListener("click", handleAuthClick);
   document.getElementById("btn_new_top").addEventListener("click", () => { initNewProject(); showEditView(); });
   document.getElementById("search_input").addEventListener("input", onSearchInput);
   document.getElementById("search_clear").addEventListener("click", clearSearch);
-  document.getElementById("btn_back").addEventListener("click", () => { showTopView(); renderProjectGrid(); });
+  
+  // 🌟 一覧へ戻るボタンを押した時は、URLから案件IDを消去して一覧に戻る
+  document.getElementById("btn_back").addEventListener("click", () => { 
+    clearUrlParam();
+    showTopView(); 
+    renderProjectGrid(); 
+  });
+  
   document.getElementById("btn_new_edit").addEventListener("click", () => { if (confirm("編集中の内容を破棄して新規作成しますか？")) initNewProject(); });
   document.getElementById("add_sales_row").addEventListener("click", () => addSalesBlock());
   document.getElementById("add_internal_row").addEventListener("click", () => addInternalRow());
@@ -56,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn_add_plan_new").addEventListener("click", addNewPlan);
   document.getElementById("btn_add_plan_copy").addEventListener("click", addCopyPlan);
 
-  // 🌟 基本情報の入力変更時にも自動保存をトリガー
+  // 基本情報の入力変更
   ["client_name", "project_name", "manager_name", "record_date"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       if (currentProject) currentProject[id] = document.getElementById(id).value.trim();
@@ -64,7 +71,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // 🌟 画面から「保存ボタン」を非表示にする（CSSを持たない環境への配慮）
   const saveBtn = document.getElementById("btn_save");
   if (saveBtn) saveBtn.style.display = "none";
 
@@ -79,9 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
       googleAccessToken = resp.access_token;
       gapi.client.setToken({ access_token: googleAccessToken });
       
-      // ログイン成功したら次回自動ログインのためにトークンを保存
       localStorage.setItem("gdrive_access_token", googleAccessToken);
-      
       updateAuthButtonStatus(true);
       syncFromGoogleSheets();
     },
@@ -95,7 +99,6 @@ async function initGapiClient() {
     discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"]
   });
   
-  // 🌟【自動ログイン】過去のログイン情報（トークン）があれば、起動時に自動で読み込みを試みる
   const savedToken = localStorage.getItem("gdrive_access_token");
   if (savedToken) {
     googleAccessToken = savedToken;
@@ -106,7 +109,6 @@ async function initGapiClient() {
 }
 
 function handleAuthClick() {
-  // 🌟 promptを 'none' にすることで、すでに権限があれば画面を挟まずに自動ログインする
   tokenClient.requestAccessToken({ prompt: googleAccessToken ? 'none' : 'consent' });
 }
 
@@ -140,10 +142,24 @@ async function syncFromGoogleSheets() {
     } else {
       allProjectsInMemory = [];
     }
+    
+    // 🌟【直リンク対応】URLに `?id=xxxx` が含まれているかチェック
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetId = urlParams.get('id');
+    
+    if (targetId) {
+      // 対象の案件データが存在すれば、最初から編集画面を開く
+      const existProj = allProjectsInMemory.find(p => p.id === targetId);
+      if (existProj) {
+        loadProjectIntoForm(targetId);
+        showEditView();
+        return;
+      }
+    }
+
     renderProjectGrid();
   } catch (err) {
     console.error("Sheets同期エラー:", err);
-    // トークン切れの場合は再ログインを促す
     if (err.status === 401) {
       localStorage.removeItem("gdrive_access_token");
       googleAccessToken = null;
@@ -172,23 +188,20 @@ async function syncToGoogleSheets() {
   }
 }
 
-// 🌟【全自動セーブ】入力データをメモリにまとめてスプレッドシートへ飛ばすコア関数
 function triggerAutoSave() {
   if (!currentProject) return;
   
-  // 1. 現在の画面の入力内容を currentProject に反映
   saveCurrentPlanState();
-  
-  // 2. 計算を実行してサマリーを更新
   calculateAndDisplay();
 
-  // 3. 案件名が入っている場合のみ、全体リストを更新してスプレッドシートに送信
   if (currentProject.project_name) {
     if (!currentProject.id) {
       currentProject.id = "proj_" + Date.now();
       currentProject.createdAt = new Date().toISOString();
       currentProject.updatedAt = currentProject.createdAt;
       allProjectsInMemory.push(currentProject);
+      // 🌟 新規作成されてIDが確定した瞬間、URLを書き換える
+      updateUrlParam(currentProject.id);
     } else {
       const idx = allProjectsInMemory.findIndex(p => p.id === currentProject.id);
       if (idx !== -1) {
@@ -198,6 +211,18 @@ function triggerAutoSave() {
     }
     syncToGoogleSheets();
   }
+}
+
+// 🌟【URL操作】アドレスバーに案件IDを埋め込む関数（画面はリロードされません）
+function updateUrlParam(id) {
+  const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id;
+  window.history.pushState({ path: newUrl }, '', newUrl);
+}
+
+// 🌟【URL操作】一覧に戻った時にURLのパラメータを綺麗に消去する関数
+function clearUrlParam() {
+  const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+  window.history.pushState({ path: cleanUrl }, '', cleanUrl);
 }
 
 // =====================================================================
@@ -373,7 +398,6 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
   container.appendChild(block);
   extRows.forEach(er => addExtRow(block, extContainer, er.name, er.amount));
   
-  // 初期ロード時以外（手動追加時）は自動保存
   if (!name && !amount) saveCurrentPlanState();
   calculateAndDisplay();
 }
@@ -509,10 +533,10 @@ function updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin) {
 function setStatusBadge(badge, textEl, profit, margin, threshold, label) {
   badge.className = "status-badge-sm";
   if (margin === null) { badge.classList.add("status-neutral"); textEl.textContent = "データ未入力"; return; }
-  if (profit < 0) { badge.classList.add("status-critical"); textEl.textContent = `赤字 (${label}マイナス)`; }
-  else if (margin >= threshold.good) { badge.classList.add("status-good"); textEl.textContent = `良好（${formatPercent(margin)}）`; }
-  else if (margin >= threshold.warn) { badge.classList.add("status-warning"); textEl.textContent = `注意（${formatPercent(margin)}）`; }
-  else { badge.classList.add("status-danger"); textEl.textContent = `警告（${formatPercent(margin)}）`; }
+  if (profit < 0) { badge.className = "status-badge-sm status-critical"; textEl.textContent = `赤字 (${label}マイナス)`; }
+  else if (margin >= threshold.good) { badge.className = "status-badge-sm status-good"; textEl.textContent = `良好（${formatPercent(margin)}）`; }
+  else if (margin >= threshold.warn) { badge.className = "status-badge-sm status-warning"; textEl.textContent = `注意（${formatPercent(margin)}）`; }
+  else { badge.className = "status-badge-sm status-danger"; textEl.textContent = `警告（${formatPercent(margin)}）`; }
 }
 
 function getRateClass(margin, th, profit) {
@@ -617,7 +641,7 @@ function renderTabs() {
 
     textInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); finishRename(); }
-      if (e.key === "Escape") { textInput.value = plan.planName; textView.classList.remove("d-none"); textInput.add("d-none"); }
+      if (e.key === "Escape") { textInput.value = plan.planName; textView.classList.remove("d-none"); textInput.classList.add("d-none"); }
     });
 
     textInput.addEventListener("blur", finishRename);
@@ -682,6 +706,7 @@ function initNewProject() {
   document.getElementById("project_name").value = "";
   document.getElementById("manager_name").value = "";
   document.getElementById("record_date").value  = todayStr();
+  clearUrlParam(); // 新規作成時はURLパラメータをクリア
   loadPlanIntoForm(0);
 }
 
@@ -695,6 +720,9 @@ function loadProjectIntoForm(id) {
   document.getElementById("project_name").value = currentProject.project_name || "";
   document.getElementById("manager_name").value = currentProject.manager_name || "";
   document.getElementById("record_date").value  = currentProject.record_date  || todayStr();
+
+  // 🌟 編集画面を読み込んだ瞬間にアドレスバーのURLを固有のものに上書き
+  updateUrlParam(id);
 
   loadPlanIntoForm(currentProject.activePlanIndex);
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -732,7 +760,7 @@ function importProjectJSON(event) {
       document.getElementById("manager_name").value = currentProject.manager_name || "";
       document.getElementById("record_date").value = currentProject.record_date || todayStr();
       loadPlanIntoForm(currentProject.activePlanIndex || 0);
-      triggerAutoSave(); // インポート時も自動同期
+      triggerAutoSave(); 
     } catch (err) { alert("JSON読み込み失敗"); }
   };
   reader.readAsText(file);
