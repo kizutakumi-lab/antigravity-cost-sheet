@@ -70,21 +70,27 @@ document.addEventListener("DOMContentLoaded", () => {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: SCOPES,
-    callback: (resp) => {
+   callback: (resp) => {
       if (resp.error) return;
       googleAccessToken = resp.access_token;
+      
+      // 🌟【ここを追加】gapiクライアントにアクセストークンを明示的にセット
+      gapi.client.setToken({ access_token: googleAccessToken });
+      
       document.getElementById("btn_google_auth").textContent = "✅ 社内DB同期中";
       document.getElementById("btn_google_auth").style.background = "#10b981";
       document.getElementById("btn_google_auth").style.color = "#fff";
       syncFromGoogleSheets();
     },
-  });
 
   showTopView();
 });
 
 async function initGapiClient() {
-  await gapi.client.init({ discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"] });
+  // discoveryDocs の指定方法を、より確実な完全URL形式に変更
+  await gapi.client.init({ 
+    discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"]
+  });
 }
 
 function handleAuthClick() {
