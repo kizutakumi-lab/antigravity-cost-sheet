@@ -21,7 +21,7 @@ const TYPE_THRESHOLDS = {
   "複合": { gross: { good: 50, warn: 30 }, op: { good: 40, warn: 25 } }
 };
 
-// 🌟 Google API接続用の設定（一元管理スプレッドシート版）
+// Google API接続用の設定
 const GOOGLE_CLIENT_ID = "276815950800-td0eanufiu9m3p4pv3dckuo0je4s2bqt.apps.googleusercontent.com";
 const SPREADSHEET_ID   = "1z_fYeAj4_RBRfla269yhctOsl5WZIBkKNCSe1wIi0yE";
 const SCOPES           = 'https://www.googleapis.com/auth/spreadsheets';
@@ -30,7 +30,7 @@ let tokenClient = null;
 let googleAccessToken = null;
 
 let currentProject = null;
-let allProjectsInMemory = []; // スプレッドシートから読み込んだ社内全員の共有データ
+let allProjectsInMemory = []; 
 
 // =====================================================================
 // 2. 初期化 ＆ Google API読み込み
@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const dateEl = document.getElementById("record_date");
   if (dateEl) dateEl.value = todayStr();
 
-  // イベント登録
+  // 🌟「保存ボタン」のイベントを削除（自動保存化のため）
   document.getElementById("btn_google_auth").addEventListener("click", handleAuthClick);
   document.getElementById("btn_new_top").addEventListener("click", () => { initNewProject(); showEditView(); });
   document.getElementById("search_input").addEventListener("input", onSearchInput);
@@ -49,21 +49,24 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn_new_edit").addEventListener("click", () => { if (confirm("編集中の内容を破棄して新規作成しますか？")) initNewProject(); });
   document.getElementById("add_sales_row").addEventListener("click", () => addSalesBlock());
   document.getElementById("add_internal_row").addEventListener("click", () => addInternalRow());
-  document.getElementById("project_type").addEventListener("change", () => { saveCurrentPlanState(); calculateAndDisplay(); });
-  document.getElementById("btn_save").addEventListener("click", saveProjectData);
+  document.getElementById("project_type").addEventListener("change", () => { triggerAutoSave(); });
   document.getElementById("btn_export").addEventListener("click", exportProjectJSON);
   document.getElementById("btn_import_trigger").addEventListener("click", () => document.getElementById("json_file_input").click());
   document.getElementById("json_file_input").addEventListener("change", importProjectJSON);
   document.getElementById("btn_add_plan_new").addEventListener("click", addNewPlan);
   document.getElementById("btn_add_plan_copy").addEventListener("click", addCopyPlan);
 
+  // 🌟 基本情報の入力変更時にも自動保存をトリガー
   ["client_name", "project_name", "manager_name", "record_date"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
       if (currentProject) currentProject[id] = document.getElementById(id).value.trim();
-      saveCurrentPlanState();
-      renderComparisonSummary();
+      triggerAutoSave();
     });
   });
+
+  // 🌟 画面から「保存ボタン」を非表示にする（CSSを持たない環境への配慮）
+  const saveBtn = document.getElementById("btn_save");
+  if (saveBtn) saveBtn.style.display = "none";
 
   // Google API クライアントの初期化起動
   gapi.load('client', initGapiClient);
@@ -74,13 +77,12 @@ document.addEventListener("DOMContentLoaded", () => {
     callback: (resp) => {
       if (resp.error) return;
       googleAccessToken = resp.access_token;
-      
-      // 🌟 gapiクライアントにアクセストークンを明示的にセット
       gapi.client.setToken({ access_token: googleAccessToken });
       
-      document.getElementById("btn_google_auth").textContent = "✅ 社内DB同期中";
-      document.getElementById("btn_google_auth").style.background = "#10b981";
-      document.getElementById("btn_google_auth").style.color = "#fff";
+      // ログイン成功したら次回自動ログインのためにトークンを保存
+      localStorage.setItem("gdrive_access_token", googleAccessToken);
+      
+      updateAuthButtonStatus(true);
       syncFromGoogleSheets();
     },
   });
@@ -92,14 +94,33 @@ async function initGapiClient() {
   await gapi.client.init({ 
     discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"]
   });
+  
+  // 🌟【自動ログイン】過去のログイン情報（トークン）があれば、起動時に自動で読み込みを試みる
+  const savedToken = localStorage.getItem("gdrive_access_token");
+  if (savedToken) {
+    googleAccessToken = savedToken;
+    gapi.client.setToken({ access_token: googleAccessToken });
+    updateAuthButtonStatus(true);
+    syncFromGoogleSheets();
+  }
 }
 
-// 認証・同期
 function handleAuthClick() {
-  if (googleAccessToken === null) {
-    tokenClient.requestAccessToken({ prompt: 'consent' });
+  // 🌟 promptを 'none' にすることで、すでに権限があれば画面を挟まずに自動ログインする
+  tokenClient.requestAccessToken({ prompt: googleAccessToken ? 'none' : 'consent' });
+}
+
+function updateAuthButtonStatus(isConnected) {
+  const btn = document.getElementById("btn_google_auth");
+  if (!btn) return;
+  if (isConnected) {
+    btn.textContent = "✅ 社内DB同期中";
+    btn.style.background = "#10b981";
+    btn.style.color = "#fff";
   } else {
-    syncFromGoogleSheets();
+    btn.textContent = "🌐 社内DBにログイン";
+    btn.style.background = "";
+    btn.style.color = "";
   }
 }
 
@@ -122,18 +143,22 @@ async function syncFromGoogleSheets() {
     renderProjectGrid();
   } catch (err) {
     console.error("Sheets同期エラー:", err);
-    alert("社内データベースとの同期に失敗しました。対象スプレッドシートのタブ名が「Sheet1」になっているか、またアクセス権限を確認してください。");
+    // トークン切れの場合は再ログインを促す
+    if (err.status === 401) {
+      localStorage.removeItem("gdrive_access_token");
+      googleAccessToken = null;
+      updateAuthButtonStatus(false);
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+      alert("社内データベースとの同期に失敗しました。対象スプレッドシートのタブ名が「Sheet1」になっているか確認してください。");
+    }
   }
 }
 
 async function syncToGoogleSheets() {
-  if (!googleAccessToken) {
-    alert("データベースと未連携です。ログインしてください。データは保存されません。");
-    return;
-  }
+  if (!googleAccessToken) return;
   
   const jsonStr = JSON.stringify(allProjectsInMemory);
-  
   try {
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
@@ -141,10 +166,37 @@ async function syncToGoogleSheets() {
       valueInputOption: 'RAW',
       resource: { values: [[jsonStr]] }
     });
-    console.log("スプレッドシート共有DBに完全自動上書き完了");
+    console.log("スプレッドシート共有DBに自動保存完了");
   } catch (err) {
-    console.error("保存エラー:", err);
-    alert("共有データベースへの自動保存に失敗しました。");
+    console.error("自動保存エラー:", err);
+  }
+}
+
+// 🌟【全自動セーブ】入力データをメモリにまとめてスプレッドシートへ飛ばすコア関数
+function triggerAutoSave() {
+  if (!currentProject) return;
+  
+  // 1. 現在の画面の入力内容を currentProject に反映
+  saveCurrentPlanState();
+  
+  // 2. 計算を実行してサマリーを更新
+  calculateAndDisplay();
+
+  // 3. 案件名が入っている場合のみ、全体リストを更新してスプレッドシートに送信
+  if (currentProject.project_name) {
+    if (!currentProject.id) {
+      currentProject.id = "proj_" + Date.now();
+      currentProject.createdAt = new Date().toISOString();
+      currentProject.updatedAt = currentProject.createdAt;
+      allProjectsInMemory.push(currentProject);
+    } else {
+      const idx = allProjectsInMemory.findIndex(p => p.id === currentProject.id);
+      if (idx !== -1) {
+        currentProject.updatedAt = new Date().toISOString();
+        allProjectsInMemory[idx] = currentProject;
+      }
+    }
+    syncToGoogleSheets();
   }
 }
 
@@ -308,18 +360,21 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
   const salesAmountInp = block.querySelector(".sales-amount");
   const extContainer   = block.querySelector(".ext-rows-container");
   const extAddBtn      = block.querySelector(".ext-add-btn");
+  
   block.querySelector(".sales-del-btn").addEventListener("click", () => {
     if (extContainer.children.length > 0 && !confirm("紐づく外注費もすべて削除されます。よろしいですか？")) return;
-    block.remove(); saveCurrentPlanState(); calculateAndDisplay();
+    block.remove(); triggerAutoSave();
   });
 
-  salesNameInp.addEventListener("input", () => { saveCurrentPlanState(); calculateAndDisplay(); });
-  salesAmountInp.addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); saveCurrentPlanState(); calculateAndDisplay(); });
+  salesNameInp.addEventListener("input", () => { triggerAutoSave(); });
+  salesAmountInp.addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); triggerAutoSave(); });
   extAddBtn.addEventListener("click", () => addExtRow(block, extContainer));
 
   container.appendChild(block);
   extRows.forEach(er => addExtRow(block, extContainer, er.name, er.amount));
-  saveCurrentPlanState();
+  
+  // 初期ロード時以外（手動追加時）は自動保存
+  if (!name && !amount) saveCurrentPlanState();
   calculateAndDisplay();
 }
 
@@ -333,13 +388,13 @@ function addExtRow(salesBlock, extContainer, name = "", amount = "") {
     <button class="btn btn-danger btn-icon-only ext-del-btn" title="外注行を削除"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   `;
 
-  row.querySelector(".ext-amount").addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); updateExtSubtotal(salesBlock); saveCurrentPlanState(); calculateAndDisplay(); });
-  row.querySelector(".ext-name").addEventListener("input", () => { saveCurrentPlanState(); calculateAndDisplay(); });
-  row.querySelector(".ext-del-btn").addEventListener("click", () => { row.remove(); updateExtSubtotal(salesBlock); saveCurrentPlanState(); calculateAndDisplay(); });
+  row.querySelector(".ext-amount").addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); updateExtSubtotal(salesBlock); triggerAutoSave(); });
+  row.querySelector(".ext-name").addEventListener("input", () => { triggerAutoSave(); });
+  row.querySelector(".ext-del-btn").addEventListener("click", () => { row.remove(); updateExtSubtotal(salesBlock); triggerAutoSave(); });
 
   extContainer.appendChild(row);
   updateExtSubtotal(salesBlock);
-  saveCurrentPlanState();
+  if (!name && !amount) saveCurrentPlanState();
   calculateAndDisplay();
 }
 
@@ -374,16 +429,16 @@ function addInternalRow(rank = "", wage = "", hours = "") {
     const h = parseNumber(hoursInp.value);
     const c = Math.round(w * h);
     costInp.value = c > 0 ? formatInputCurrency(c) : "";
-    saveCurrentPlanState(); calculateAndDisplay();
+    triggerAutoSave();
   }
 
   rankSel.addEventListener("change", () => { wageInp.value = formatInputCurrency(rankSel.value ? (HOURLY_WAGE_MAP[rankSel.value] ?? "") : ""); calcRowCost(); });
   hoursInp.addEventListener("input", calcRowCost);
-  tr.querySelector("button").addEventListener("click", () => { tr.remove(); saveCurrentPlanState(); calculateAndDisplay(); });
+  tr.querySelector("button").addEventListener("click", () => { tr.remove(); triggerAutoSave(); });
 
   tbody.appendChild(tr);
   if (rank && wage) calcRowCost();
-  else { saveCurrentPlanState(); calculateAndDisplay(); }
+  else { calculateAndDisplay(); }
 }
 
 function parseNumber(val) {
@@ -435,8 +490,6 @@ function calculateAndDisplay() {
   document.getElementById("summary_operating_profit_rate").textContent = formatPercent(opMargin);
 
   updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin);
-  renderTabs();
-  renderComparisonSummary();
 }
 
 function updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin) {
@@ -511,7 +564,6 @@ function saveCurrentPlanState() {
   };
 }
 
-// 🌟 インライン名前変更（ファイル名変更と同じ挙動）を組み込んだ最新レンダラー
 function renderTabs() {
   const tabsBar = document.getElementById("tabs_bar");
   if (!tabsBar || !currentProject) return;
@@ -560,22 +612,12 @@ function renderTabs() {
       if (newName) {
         plan.planName = newName;
       }
-      saveCurrentPlanState();
-      renderTabs();
-      renderComparisonSummary();
-      syncToGoogleSheets(); 
+      triggerAutoSave();
     }
 
     textInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        finishRename();
-      }
-      if (e.key === "Escape") {
-        textInput.value = plan.planName;
-        textView.classList.remove("d-none");
-        textInput.classList.add("d-none");
-      }
+      if (e.key === "Enter") { e.preventDefault(); finishRename(); }
+      if (e.key === "Escape") { textInput.value = plan.planName; textView.classList.remove("d-none"); textInput.add("d-none"); }
     });
 
     textInput.addEventListener("blur", finishRename);
@@ -614,7 +656,7 @@ function renderComparisonSummary() {
 function switchPlan(index) { saveCurrentPlanState(); currentProject.activePlanIndex = index; loadPlanIntoForm(index); }
 function addNewPlan() { saveCurrentPlanState(); currentProject.plans.push({ planName: `パターン ${currentProject.plans.length + 1}`, projectType: "制作", salesRows: [], internalRows: [], summary: {} }); currentProject.activePlanIndex = currentProject.plans.length - 1; loadPlanIntoForm(currentProject.activePlanIndex); }
 function addCopyPlan() { saveCurrentPlanState(); const cp = JSON.parse(JSON.stringify(currentProject.plans[currentProject.activePlanIndex])); cp.planName = `${cp.planName} (コピー)`; currentProject.plans.push(cp); currentProject.activePlanIndex = currentProject.plans.length - 1; loadPlanIntoForm(currentProject.activePlanIndex); }
-function removePlan(index) { if (currentProject.plans.length <= 1 || !confirm("削除しますか？")) return; currentProject.plans.splice(index, 1); if (currentProject.activePlanIndex >= currentProject.plans.length) currentProject.activePlanIndex = currentProject.plans.length - 1; loadPlanIntoForm(currentProject.activePlanIndex); }
+function removePlan(index) { if (currentProject.plans.length <= 1 || !confirm("削除しますか？")) return; currentProject.plans.splice(index, 1); if (currentProject.activePlanIndex >= currentProject.plans.length) currentProject.activePlanIndex = currentProject.plans.length - 1; loadPlanIntoForm(currentProject.activePlanIndex); triggerAutoSave(); }
 
 function loadPlanIntoForm(index) {
   const plan = currentProject.plans[index];
@@ -624,8 +666,15 @@ function loadPlanIntoForm(index) {
   document.getElementById("internal_table_body").innerHTML  = "";
   if (plan.salesRows?.length) plan.salesRows.forEach(r => addSalesBlock(r.name, r.amount, r.outsourcingRows || [])); else addSalesBlock();
   if (plan.internalRows?.length) plan.internalRows.forEach(r => addInternalRow(r.rank, r.wage, r.hours)); else addInternalRow();
+  
   calculateAndDisplay();
+  renderTabs();
+  renderComparisonSummary();
 }
+
+// =====================================================================
+// 6. データ読み込み ＆ 削除 コア
+// =====================================================================
 
 function initNewProject() {
   currentProject = { id: null, client_name: "", project_name: "", manager_name: "", record_date: todayStr(), activePlanIndex: 0, plans: [{ planName: "パターン 1", projectType: "制作", salesRows: [], internalRows: [], summary: {} }] };
@@ -633,33 +682,7 @@ function initNewProject() {
   document.getElementById("project_name").value = "";
   document.getElementById("manager_name").value = "";
   document.getElementById("record_date").value  = todayStr();
-  document.getElementById("btn_save").textContent = "💾 案件を自動保存する";
   loadPlanIntoForm(0);
-}
-
-// =====================================================================
-// 6. メモリデータの保存 ＆ スプレッドシート共有DB送信
-// =====================================================================
-
-function saveProjectData() {
-  if (!currentProject) return;
-  saveCurrentPlanState();
-
-  if (!currentProject.project_name) { alert("案件名を入力してください。"); document.getElementById("project_name").focus(); return; }
-
-  if (currentProject.id) {
-    const idx = allProjectsInMemory.findIndex(p => p.id === currentProject.id);
-    if (idx !== -1) { currentProject.updatedAt = new Date().toISOString(); allProjectsInMemory[idx] = currentProject; }
-  } else {
-    currentProject.id = "proj_" + Date.now();
-    currentProject.createdAt = new Date().toISOString();
-    currentProject.updatedAt = currentProject.createdAt;
-    allProjectsInMemory.push(currentProject);
-  }
-
-  document.getElementById("btn_save").textContent = "💾 案件を上書き保存する";
-  syncToGoogleSheets();
-  alert("案件を社内共有データベースに保存しました。");
 }
 
 function loadProjectIntoForm(id) {
@@ -673,7 +696,6 @@ function loadProjectIntoForm(id) {
   document.getElementById("manager_name").value = currentProject.manager_name || "";
   document.getElementById("record_date").value  = currentProject.record_date  || todayStr();
 
-  document.getElementById("btn_save").textContent = "💾 案件を上書き保存する";
   loadPlanIntoForm(currentProject.activePlanIndex);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -710,12 +732,12 @@ function importProjectJSON(event) {
       document.getElementById("manager_name").value = currentProject.manager_name || "";
       document.getElementById("record_date").value = currentProject.record_date || todayStr();
       loadPlanIntoForm(currentProject.activePlanIndex || 0);
+      triggerAutoSave(); // インポート時も自動同期
     } catch (err) { alert("JSON読み込み失敗"); }
   };
   reader.readAsText(file);
 }
 
-// ユーティリティ
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 function escapeHtml(str) { return str ? str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") : ""; }
 function escapeAttr(str) { return str ? str.replace(/"/g, "&quot;") : ""; }
