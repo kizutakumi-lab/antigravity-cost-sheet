@@ -1,0 +1,868 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap');
+
+:root {
+  --font: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --bg:          #f0f4f8;
+  --bg-card:     #ffffff;
+  --text:        #1e293b;
+  --text-muted:  #64748b;
+  --border:      #94a3b8; /* 枠線を少し濃くして見やすく */
+  --border-lt:   #cbd5e1;
+
+  --primary:       #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-light: #dbeafe;
+
+  --danger:      #ef4444;
+  --danger-hover: #dc2626;
+  --danger-lt:   #fee2e2;
+  --success:     #10b981;
+
+  /* 売上行（親）の色 */
+  --sales-bg:     #f8fafc;
+
+  /* 収支判定 */
+  --good-bg:     #f0fdf4; --good-text:     #166534; --good-border:     #bbf7d0;
+  --warn-bg:     #fffbeb; --warn-text:     #92400e; --warn-border:     #fef08a;
+  --danger2-bg:  #fff7ed; --danger2-text:  #c2410c; --danger2-border:  #ffedd5;
+  --crit-bg:     #fef2f2; --crit-text:     #991b1b; --crit-border:     #fecaca;
+  --neutral-bg:  #f1f5f9; --neutral-text:  #64748b; --neutral-border:  #e2e8f0;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / .08);
+  --shadow-lg: 0 10px 25px rgb(0 0 0 / .12);
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+
+/* ================================================================ */
+/* TOP VIEW                                                          */
+/* ================================================================ */
+
+.top-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.top-header h1 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1.2;
+}
+
+.top-header-left { display: flex; flex-direction: column; gap: 4px; }
+
+.app-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* 検索エリア */
+.search-area {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+  max-width: 560px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  padding: 11px 42px;
+  border: 1.5px solid var(--border);
+  border-radius: 50px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  box-shadow: var(--shadow-sm);
+}
+
+.search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.15);
+}
+
+.search-clear {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 4px;
+  border-radius: 50%;
+}
+.search-clear:hover { background: var(--border-lt); }
+
+.search-count {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* 案件カードグリッド */
+.project-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+/* 案件カード */
+.project-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-lt);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.project-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary);
+}
+
+.project-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.project-card-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  flex: 1;
+}
+
+.project-type-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tag-seisaku  { background: #e0f2fe; color: #075985; }
+.tag-koukoku  { background: #fef3c7; color: #92400e; }
+.tag-fukugo   { background: #f3e8ff; color: #6b21a8; }
+
+.project-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.83rem;
+  color: var(--text-muted);
+}
+
+.meta-item { display: flex; align-items: center; gap: 4px; }
+
+.project-card-metrics {
+  display: grid;
+  grid-template-columns: 1fr; /* 横幅一杯にしてフル金額を表示 */
+  gap: 6px;
+}
+
+.metric-box {
+  background: var(--bg);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.metric-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: 'Inter', monospace;
+}
+
+.project-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border-lt);
+  padding-top: 12px;
+}
+
+/* 収支状態の色（カード内メトリクス） */
+.val-good     { color: #166534; }
+.val-warning  { color: #92400e; }
+.val-danger   { color: #c2410c; }
+.val-critical { color: #991b1b; }
+.val-neutral  { color: var(--text-muted); }
+
+/* ゼロ案件・検索ゼロ メッセージ */
+.no-projects-msg {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+.no-projects-icon { font-size: 3rem; margin-bottom: 16px; }
+.no-projects-title { font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.no-projects-sub { font-size: 0.9rem; }
+
+/* ================================================================ */
+/* EDIT VIEW                                                         */
+/* ================================================================ */
+
+.edit-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  border-bottom: 2px solid var(--border-lt);
+  padding-bottom: 16px;
+}
+
+.edit-header-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--primary);
+  flex: 1;
+}
+
+/* 2カラム ワークスペース */
+.workspace {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .workspace { grid-template-columns: 1fr; }
+}
+
+.input-area { display: flex; flex-direction: column; gap: 16px; }
+
+/* ================================================================ */
+/* カード共通                                                         */
+/* ================================================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-lt);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+}
+
+.card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  border-left: 4px solid var(--primary);
+  padding-left: 10px;
+  margin-bottom: 14px;
+}
+
+.card-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+/* ================================================================ */
+/* 案件基本情報フォーム                                               */
+/* ================================================================ */
+
+.basic-info-main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.basic-info-sub {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+
+.form-group label {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.form-control {
+  font-family: var(--font);
+  font-size: 0.95rem;
+  padding: 9px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+
+.form-control:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+}
+
+.form-group-sm { display: flex; flex-direction: column; gap: 4px; }
+
+.form-group-sm label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.form-control-sm {
+  font-family: var(--font);
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: #fff;
+  outline: none;
+  width: 160px;
+  transition: border-color .15s;
+}
+
+/* ================================================================ */
+/* 🌟 パターン・タブバー関連のUI刷新                                 */
+/* ================================================================ */
+
+.tabs-wrap {
+  margin-top: 20px;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 2;
+}
+
+.tabs-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 4px;
+  gap: 12px;
+}
+
+.tabs-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* タブをはっきりとした「ボタン風」デザインに */
+.tab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #e2e8f0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  padding: 8px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  cursor: pointer;
+  user-select: none;
+  transition: all .15s ease;
+  box-shadow: inset 0 -2px 4px rgba(0,0,0,0.05);
+}
+
+.tab-item:hover {
+  background: #cbd5e1;
+  color: var(--text);
+}
+
+/* アクティブなタブボタン */
+.tab-item.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  padding-top: 10px;
+  margin-top: -2px;
+  box-shadow: 0 -2px 6px rgba(37,99,235,0.2);
+}
+
+/* タブ内の削除✕ボタンも明確な独立したボタンに */
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.1);
+  color: inherit;
+  transition: all .15s;
+  border: 1px solid transparent;
+}
+
+.tab-item:not(.active) .tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.tab-item.active .tab-close {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tab-item.active .tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger-hover);
+}
+
+.tab-add-btns {
+  display: flex;
+  gap: 6px;
+}
+
+/* ================================================================ */
+/* 売上＆外注費 横並びテーブル                                       */
+/* ================================================================ */
+
+.sales-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.project-type-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.type-select {
+  font-family: var(--font);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border: 1.5px solid var(--primary);
+  border-radius: 20px;
+  background: var(--primary-light);
+  color: var(--primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.sales-ext-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #e2e8f0;
+  border: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.col-sales-header, .col-ext-header {
+  display: flex;
+  padding: 10px 12px;
+  gap: 8px;
+  align-items: center;
+}
+
+.col-sales-header { border-right: 2px solid var(--border); }
+.col-label-item   { flex: 1; }
+.col-label-amount { width: 140px; text-align: right; }
+.col-label-del    { width: 36px; }
+
+.sales-block {
+  border: 1px solid var(--border);
+  border-top: none;
+  background: #fff;
+}
+
+.sales-block:last-of-type {
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+
+.sales-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: var(--sales-bg);
+  border-bottom: 1px solid var(--border-lt);
+}
+
+.sales-cell-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-right: 2px solid var(--border);
+}
+
+.sales-cell-right {
+  display: flex;
+  flex-direction: column;
+}
+
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 6px;
+  border-bottom: 1px solid var(--border-lt);
+  background: #fafafa;
+}
+
+.ext-indent {
+  color: #94a3b8;
+  font-size: 1rem;
+  width: 18px;
+  text-align: center;
+}
+
+.ext-add-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f1f5f9;
+}
+
+.ext-subtotal {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.ext-subtotal strong { color: var(--text); font-weight: 700; }
+
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 10px;
+  background: #e2e8f0;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--border);
+}
+
+.table-totals {
+  display: flex;
+  gap: 20px;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+.table-totals strong { color: var(--primary); font-weight: 700; }
+
+/* ================================================================ */
+/* 🌟 入力フィールド（常に枠線を表示・分かりやすく白背景化）          */
+/* ================================================================ */
+
+.table-input {
+  border: 1px solid var(--border) !important; /* 常に枠線を表示 */
+  background: #ffffff !important;           /* 常に白背景にして入力欄と明示 */
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 0.88rem;
+  border-radius: var(--r-sm);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.table-input:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(37,99,235,.15);
+}
+
+/* 読み取り専用（自動計算フィールドなど） */
+.table-input[readonly] {
+  background: #e2e8f0 !important;
+  color: #475569;
+  cursor: not-allowed;
+  border: 1px solid var(--border-lt) !important;
+}
+
+.input-name   { flex: 1; }
+.input-amount { width: 140px; text-align: right; flex-shrink: 0; font-family: 'Inter', monospace; }
+
+/* ================================================================ */
+/* Excel風テーブル（社内費）                                          */
+/* ================================================================ */
+
+.table-responsive { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
+
+.excel-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+
+.excel-table th {
+  background: #e2e8f0;
+  color: #1e293b;
+  font-weight: 700;
+  padding: 10px 11px;
+  border-bottom: 2px solid var(--border);
+  border-right: 1px solid var(--border-lt);
+  text-align: left;
+}
+
+.excel-table td {
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--border-lt);
+  border-right: 1px solid var(--border-lt);
+  vertical-align: middle;
+  background: #fff;
+}
+
+.excel-table th:last-child, .excel-table td:last-child { border-right: none; }
+
+.table-summary-row td {
+  border-top: 2px solid var(--border);
+  padding: 10px 11px;
+  background: #f1f5f9;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.table-actions-container { padding: 10px; border-top: 1px solid var(--border); background: #f8fafc; }
+
+.table-select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 6px 8px;
+  font-family: var(--font);
+  font-size: 0.88rem;
+  border-radius: var(--r-sm);
+  outline: none;
+}
+.table-select:focus { border-color: var(--primary); }
+
+.col-actions { width: 40px; text-align: center; }
+.col-amount  { width: 160px; }
+.col-hours   { width: 110px; }
+.col-wage    { width: 120px; }
+.text-right  { text-align: right; }
+
+/* ================================================================ */
+/* ボタン共通                                                        */
+/* ================================================================ */
+
+.btn {
+  font-family: var(--font);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.btn-lg    { padding: 12px 24px; font-size: 0.95rem; font-weight: 700; }
+.btn-xs    { font-size: 0.78rem; padding: 6px 12px; border-radius: 4px; }
+
+.btn-primary   { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: var(--shadow-sm); }
+.btn-primary:hover { background: var(--primary-hover); }
+
+.btn-secondary { background: #fff; border-color: var(--border); color: var(--text); }
+.btn-secondary:hover { background: #f1f5f9; border-color: var(--text); }
+
+.btn-ghost { background: none; border: none; color: var(--primary); font-weight: 600; }
+.btn-ghost:hover { background: var(--primary-light); }
+
+.btn-danger { background: #fff; border-color: var(--border); color: var(--danger); }
+.btn-danger:hover { background: var(--danger-lt); border-color: var(--danger); }
+
+.btn-icon-only { padding: 0; border-radius: 4px; width: 28px; height: 28px; }
+
+/* ================================================================ */
+/* サイドバー サマリーカード                                          */
+/* ================================================================ */
+
+.sidebar { position: sticky; top: 20px; }
+
+.summary-card {
+  background: #0f172a;
+  color: #fff;
+  border-radius: var(--r-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-lg);
+}
+
+.summary-card h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #38bdf8;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.summary-item.sub { color: #94a3b8; font-size: 0.85rem; }
+
+.summary-item.main {
+  border-top: 1px dashed #334155;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.summary-item.summary-internal {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #334155;
+}
+
+.summary-label { font-weight: 500; }
+
+.summary-value {
+  font-family: 'Inter', monospace;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.summary-item.main .summary-value {
+  font-size: 1.3rem;
+  color: #38bdf8; /* 金額を目立たせる */
+}
+
+.summary-section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #38bdf8;
+  margin: 14px 0 6px 0;
+  border-left: 3px solid #38bdf8;
+  padding-left: 6px;
+}
+
+.status-badge-sm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  margin: 6px 0 4px 0;
+  border: 1px solid transparent;
+}
+
+.status-title-sm { font-size: 0.7rem; font-weight: 600; opacity: 0.8; }
+.status-text-sm { font-size: 0.85rem; font-weight: 700; }
+
+.status-good    { background: var(--good-bg);    color: var(--good-text);    border-color: var(--good-border); }
+.status-warning { background: var(--warn-bg);    color: var(--warn-text);    border-color: var(--warn-border); }
+.status-danger  { background: var(--danger2-bg); color: var(--danger2-text); border-color: var(--danger2-border); }
+.status-critical{ background: var(--crit-bg);    color: var(--crit-text);    border-color: var(--crit-border); animation: pulse 2s infinite; }
+.status-neutral { background: #1e293b;           color: #64748b;             border-color: #334155; }
+
+@keyframes pulse {
+  0%  { box-shadow: 0 0 0 0 rgba(239,68,68,.4); }
+  70% { box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+  100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+/* 下部 収支比較サマリー */
+.comparison-card { margin-top: 24px; }
+.comparison-scroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+
+.comparison-item {
+  background: #f8fafc;
+  border: 2px solid var(--border-lt);
+  border-radius: var(--r-md);
+  padding: 14px;
+  min-width: 220px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.comparison-item:hover { border-color: var(--border); background: #f1f5f9; }
+.comparison-item.active { border-color: var(--primary); background: #eff6ff; box-shadow: var(--shadow-sm); }
+
+.comp-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 8px; color: var(--text); }
+.comp-metrics { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.comp-metric { display: flex; justify-content: space-between; }
+.comp-lbl { color: var(--text-muted); }
+
+.sidebar-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.sidebar-actions .btn { width: 100%; padding: 10px; font-weight: 600; }
+
+.io-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #334155;
+}
+.io-actions .btn { flex: 1; font-size: 0.74rem; padding: 6px; }
+
+.d-none { display: none !important; }
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }

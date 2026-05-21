@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>原価管理WEBアプリ - アンチグラビティ</title>
+  <meta name="description" content="案件ごとの売上・外注費・社内費から粗利・営業利益を自動計算する原価管理ツール">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client"></script>
+</head>
+<body>
+
+  <div id="view_top">
+    <div class="container">
+      <header class="top-header">
+        <div class="top-header-left">
+          <h1>📈 原価管理WEBアプリ</h1>
+          <span class="app-subtitle">アンチグラビティ 案件収支シミュレーター (Googleドライブ自動同期)</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button id="btn_google_auth" class="btn btn-secondary">🌐 Googleドライブと連携</button>
+          <button id="btn_new_top" class="btn btn-primary btn-lg">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新規案件を作成
+          </button>
+        </div>
+      </header>
+
+      <div class="search-area">
+        <div class="search-box">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="search_input" class="search-input" placeholder="案件名・得意先・担当者・案件メンバーで検索...">
+          <button id="search_clear" class="search-clear d-none" title="クリア">✕</button>
+        </div>
+        <span id="search_count" class="search-count"></span>
+      </div>
+
+      <div id="project_cards_grid" class="project-cards-grid"></div>
+      <div id="no_projects_msg" class="no-projects-msg d-none">
+        <div class="no-projects-icon">📋</div>
+        <p class="no-projects-title">案件データはありません</p>
+        <p class="no-projects-sub">「新規案件を作成」ボタンから始めましょう</p>
+      </div>
+      <div id="no_search_results" class="no-projects-msg d-none">
+        <div class="no-projects-icon">🔍</div>
+        <p class="no-projects-title">検索結果が見つかりません</p>
+        <p class="no-projects-sub">別のキーワードをお試しください</p>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="view_edit" class="d-none">
+    <div class="container">
+
+      <header class="edit-header">
+        <button id="btn_back" class="btn btn-ghost">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          案件一覧へ
+        </button>
+        <h1 class="edit-header-title">📈 原価管理WEBアプリ <span class="app-subtitle">案件収支シート</span></h1>
+        <div class="edit-actions">
+          <button id="btn_new_edit" class="btn btn-secondary btn-sm">新規</button>
+          <button id="btn_save" class="btn btn-primary">💾 保存</button>
+          <button id="btn_export" class="btn btn-secondary btn-sm">JSON出力</button>
+          <button id="btn_import_trigger" class="btn btn-secondary btn-sm">JSON読込</button>
+          <input type="file" id="json_file_input" class="d-none" accept=".json">
+        </div>
+      </header>
+
+      <section class="card">
+        <h2 class="card-title">■ 案件基本情報</h2>
+        <div class="basic-info-main">
+          <div class="form-group">
+            <label for="client_name">得意先</label>
+            <input type="text" id="client_name" class="form-control" placeholder="例: ○○株式会社">
+          </div>
+          <div class="form-group">
+            <label for="project_name">案件名</label>
+            <input type="text" id="project_name" class="form-control" placeholder="例: 新規プロモーションキャンペーン">
+          </div>
+        </div>
+        <div class="basic-info-sub">
+          <div class="form-group-sm">
+            <label for="manager_name">担当者</label>
+            <input type="text" id="manager_name" class="form-control-sm" placeholder="例: 山田 太郎">
+          </div>
+          <div class="form-group-sm">
+            <label for="record_date">記入日</label>
+            <input type="date" id="record_date" class="form-control-sm">
+          </div>
+        </div>
+      </section>
+
+      <div class="tabs-wrap">
+        <div class="tabs-bar-row">
+          <div id="tabs_bar" class="tabs-bar"></div>
+          <div class="tab-add-btns">
+            <button id="btn_add_plan_copy" class="btn btn-secondary btn-xs">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              コピーして追加
+            </button>
+            <button id="btn_add_plan_new" class="btn btn-secondary btn-xs">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              新規パターン
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="workspace">
+        
+        <div class="input-area">
+
+          <section class="card tab-card">
+            <div class="sales-card-header">
+              <h2 class="card-title" style="margin-bottom:0; border:none; padding-left:0;">■ 売上 &amp; 外注費</h2>
+              <div class="project-type-selector">
+                <label for="project_type">案件の性質</label>
+                <select id="project_type" class="type-select">
+                  <option value="制作">制作</option>
+                  <option value="広告運用">広告運用</option>
+                  <option value="複合">複合</option>
+                </select>
+              </div>
+            </div>
+            <p class="card-note">売上項目ごとに外注費を紐づけできます</p>
+
+            <div class="sales-ext-header">
+              <div class="col-sales-header">
+                <span class="col-label-item">売上項目名</span>
+                <span class="col-label-amount">売上金額</span>
+                <span class="col-label-del"></span>
+              </div>
+              <div class="col-ext-header">
+                <span class="col-label-item">外注項目名</span>
+                <span class="col-label-amount">外注金額</span>
+              </div>
+            </div>
+
+            <div id="sales_rows_container"></div>
+
+            <div class="table-footer">
+              <button id="add_sales_row" class="btn btn-secondary">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                売上項目を追加
+              </button>
+              <div class="table-totals">
+                <span>売上総額：<strong id="sales_total_display">¥0</strong></span>
+                <span>外注総額：<strong id="outsourcing_total_display">¥0</strong></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2 class="card-title">■ 社内費入力</h2>
+            <div class="table-responsive">
+              <table class="excel-table">
+                <thead>
+                  <tr>
+                    <th>案件メンバー</th>
+                    <th class="col-wage">時給 (円)</th>
+                    <th class="col-hours">稼働時間 (h)</th>
+                    <th class="col-amount">社内費 (円)</th>
+                    <th class="col-actions"></th>
+                  </tr>
+                </thead>
+                <tbody id="internal_table_body"></tbody>
+                <tfoot>
+                  <tr class="table-summary-row">
+                    <td colspan="3">社内費総額</td>
+                    <td id="internal_total_display" class="text-right">¥0</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div class="table-actions-container">
+              <button id="add_internal_row" class="btn btn-secondary">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                メンバーを追加
+              </button>
+            </div>
+          </section>
+
+        </div>
+        
+        <aside class="sidebar">
+          <div class="summary-card">
+            <h2>📊 収支サマリー</h2>
+            
+            <div class="summary-section-label">売上・外注</div>
+            <div class="summary-item">
+              <span class="summary-label">売上総額</span>
+              <span id="summary_total_sales" class="summary-value">¥0</span>
+            </div>
+            <div class="summary-item sub">
+              <span class="summary-label">└ 外注費総額</span>
+              <span id="summary_total_outsourcing" class="summary-value">¥0</span>
+            </div>
+
+            <div class="summary-section-label">粗利益</div>
+            <div class="summary-item main">
+              <span class="summary-label">粗利益額</span>
+              <span id="summary_gross_profit" class="summary-value">¥0</span>
+            </div>
+            <div class="summary-item sub">
+              <span class="summary-label">粗利益率</span>
+              <span id="summary_gross_profit_rate" class="summary-value">0.0%</span>
+            </div>
+            
+            <div id="gross_status_badge" class="status-badge-sm status-neutral">
+              <span class="status-title-sm">粗利判定</span>
+              <span id="gross_status_text" class="status-text-sm">データ未入力</span>
+            </div>
+
+            <div class="summary-section-label summary-internal">社内原価</div>
+            <div class="summary-item">
+              <span class="summary-label">社内費総額</span>
+              <span id="summary_total_internal" class="summary-value">¥0</span>
+            </div>
+
+            <div class="summary-section-label">営業利益</div>
+            <div class="summary-item main">
+              <span class="summary-label">営業利益額</span>
+              <span id="summary_operating_profit" class="summary-value">¥0</span>
+            </div>
+            <div class="summary-item sub">
+              <span class="summary-label">営業利益率</span>
+              <span id="summary_operating_profit_rate" class="summary-value">0.0%</span>
+            </div>
+
+            <div id="op_status_badge" class="status-badge-sm status-neutral">
+              <span class="status-title-sm">営利判定</span>
+              <span id="op_status_text" class="status-text-sm">データ未入力</span>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+      
+      <section class="card comparison-card" style="margin-top: 20px;">
+        <h2 class="card-title">
+          📊 収支比較サマリー
+          <span class="card-title-note">クリックでパターンを切り替え / ダブルクリックで名前変更</span>
+        </h2>
+        <div class="comparison-scroll" id="comparison_summary"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
