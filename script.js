@@ -21,17 +21,16 @@ const TYPE_THRESHOLDS = {
   "複合": { gross: { good: 50, warn: 30 }, op: { good: 40, warn: 25 } }
 };
 
-// 🌟 Google API接続用の設定
+// 🌟 Google API接続用の設定（一元管理スプレッドシート版）
 const GOOGLE_CLIENT_ID = "276815950800-td0eanufiu9m3p4pv3dckuo0je4s2bqt.apps.googleusercontent.com";
-const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
-const FILE_NAME = "antigravity_cost_data.json";
+const SPREADSHEET_ID   = "1z_fYeAj4_RBRfla269yhctOsl5WZIBkKNCSe1wIi0yE";
+const SCOPES           = 'https://www.googleapis.com/auth/spreadsheets';
 
 let tokenClient = null;
 let googleAccessToken = null;
-let gdriveFileId = null;
 
 let currentProject = null;
-let allProjectsInMemory = []; // Googleドライブから読み込んだ全データを保持する配列
+let allProjectsInMemory = []; // スプレッドシートから読み込んだ社内全員の共有データ
 
 // =====================================================================
 // 2. 初期化 ＆ Google API読み込み
@@ -74,10 +73,10 @@ document.addEventListener("DOMContentLoaded", () => {
     callback: (resp) => {
       if (resp.error) return;
       googleAccessToken = resp.access_token;
-      document.getElementById("btn_google_auth").textContent = "✅ ドライブ同期中";
+      document.getElementById("btn_google_auth").textContent = "✅ 社内DB同期中";
       document.getElementById("btn_google_auth").style.background = "#10b981";
       document.getElementById("btn_google_auth").style.color = "#fff";
-      syncFromGoogleDrive();
+      syncFromGoogleSheets();
     },
   });
 
@@ -85,89 +84,61 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initGapiClient() {
-  await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] });
+  await gapi.client.init({ discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"] });
 }
 
 function handleAuthClick() {
   if (googleAccessToken === null) {
     tokenClient.requestAccessToken({ prompt: 'consent' });
   } else {
-    syncFromGoogleDrive();
+    syncFromGoogleSheets();
   }
 }
 
 // =====================================================================
-// 3. Googleドライブ同期システム（完全自動・隠しフォルダ管理）
+// 3. Googleスプレッドシート同期システム（全員で一元管理）
 // =====================================================================
 
-async function syncFromGoogleDrive() {
+async function syncFromGoogleSheets() {
   try {
-    // 隠しフォルダ（appDataFolder）内から特定のファイル名を探す
-    const response = await gapi.client.drive.files.list({
-      q: `name='${FILE_NAME}'`,
-      spaces: 'appDataFolder',
-      fields: 'files(id, name)'
+    // シートのA1セルからデータを読み込む
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
     });
-    const files = response.result.files;
-    if (files && files.length > 0) {
-      gdriveFileId = files[0].id;
-      // ファイルをダウンロード
-      const fileResp = await gapi.client.drive.files.get({ fileId: gdriveFileId, alt: 'media' });
-      allProjectsInMemory = fileResp.result || [];
+    const rows = response.result.values;
+    if (rows && rows.length > 0 && rows[0][0]) {
+      allProjectsInMemory = JSON.parse(rows[0][0]);
     } else {
       allProjectsInMemory = [];
     }
     renderProjectGrid();
   } catch (err) {
-    console.error("Drive同期エラー:", err);
-    alert("Googleドライブとのデータ同期に失敗しました。サインイン状態を確認してください。");
+    console.error("Sheets同期エラー:", err);
+    alert("社内データベースとの同期に失敗しました。対象スプレッドシートへのアクセス権限があるか確認してください。");
   }
 }
 
-async function syncToGoogleDrive() {
+async function syncToGoogleSheets() {
   if (!googleAccessToken) {
-    alert("Googleドライブと未連携です。上部の「Googleドライブと連携」ボタンを押してください。データはローカルに一時保存されます。");
-    localStorage.setItem("antigravity_backup", JSON.stringify(allProjectsInMemory));
+    alert("データベースと未連携です。ログインしてください。データは保存されません。");
     return;
   }
   
-  const boundary = 'foo_bar_baz';
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const close_delim = `\r\n--${boundary}--`;
-  const metadata = { name: FILE_NAME, parents: ['appDataFolder'] };
-  const data = JSON.stringify(allProjectsInMemory, null, 2);
-
-  let route = '/upload/drive/v3/files';
-  let method = 'POST';
-
-  if (gdriveFileId) {
-    route = `/upload/drive/v3/files/${gdriveFileId}`;
-    method = 'PATCH';
-    delete metadata.parents;
-  }
-
-  const multipartRequestBody =
-      delimiter +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      JSON.stringify(metadata) +
-      delimiter +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      data +
-      close_delim;
-
+  const jsonStr = JSON.stringify(allProjectsInMemory);
+  
   try {
-    const response = await gapi.client.request({
-      path: route,
-      method: method,
-      params: { uploadType: 'multipart' },
-      headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-      body: multipartRequestBody
+    // シートのA1セルにデータを丸ごと上書き
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+      valueInputOption: 'RAW',
+      resource: { values: [[jsonStr]] }
     });
-    if (method === 'POST') gdriveFileId = response.result.id;
-    console.log("Googleドライブに完全自動保存完了");
+    console.log("スプレッドシート共有DBに完全自動上書き完了");
   } catch (err) {
     console.error("保存エラー:", err);
-    alert("Googleドライブへの保存に失敗しました。");
+    alert("共有データベースへの自動保存に失敗しました。");
   }
 }
 
@@ -462,6 +433,7 @@ function calculateAndDisplay() {
   renderComparisonSummary();
 }
 
+// 収支判定のしきい値に応じたクラス・文言の付与
 function updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin) {
   const pt = document.getElementById("project_type")?.value || "制作";
   const th = TYPE_THRESHOLDS[pt] || TYPE_THRESHOLDS["制作"];
@@ -597,7 +569,7 @@ function initNewProject() {
 }
 
 // =====================================================================
-// 6. メモリデータの保存 ＆ クラウド送信
+// 6. メモリデータの保存 ＆ スプレッドシート共有DB送信
 // =====================================================================
 
 function saveProjectData() {
@@ -617,9 +589,10 @@ function saveProjectData() {
   }
 
   document.getElementById("btn_save").textContent = "💾 案件を上書き保存する";
-  // 🌟 メモリに書き込んだら、全自動でGoogleドライブへ同期送信
-  syncToGoogleDrive();
-  alert("案件をGoogleドライブに保存しました。");
+  
+  // 🌟 スプレッドシートの共通DBへ自動上書き同期
+  syncToGoogleSheets();
+  alert("案件を社内共有データベースに保存しました。");
 }
 
 function loadProjectIntoForm(id) {
@@ -641,13 +614,13 @@ function loadProjectIntoForm(id) {
 function deleteProject(id, name) {
   if (!confirm(`案件「${name || "（無題）"}」を削除してもよろしいですか？`)) return;
   allProjectsInMemory = allProjectsInMemory.filter(p => p.id !== id);
-  syncToGoogleDrive();
+  syncToGoogleSheets();
   if (currentProject && currentProject.id === id) initNewProject();
   renderProjectGrid(document.getElementById("search_input").value);
 }
 
 // =====================================================================
-// 7. ローカルIO・ユーティリティ
+// 7. ローカルIO·ユーティリティ
 // =====================================================================
 
 function exportProjectJSON() {
