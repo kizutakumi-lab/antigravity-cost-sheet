@@ -31,6 +31,7 @@ let googleAccessToken = null;
 
 let currentProject = null;
 let allProjectsInMemory = []; 
+let pollingIntervalId = null;
 
 // =====================================================================
 // 2. 初期化 ＆ Google API読み込み
@@ -50,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn_back").addEventListener("click", () => { 
     clearUrlParam();
     showTopView(); 
-    renderProjectGrid(); 
+    syncFromGoogleSheets(); 
   });
   
   document.getElementById("btn_new_edit").addEventListener("click", () => { if (confirm("編集中の内容を破棄して新規作成しますか？")) initNewProject(); });
@@ -63,6 +64,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn_add_plan_new").addEventListener("click", addNewPlan);
   document.getElementById("btn_add_plan_copy").addEventListener("click", addCopyPlan);
 
+  document.getElementById("btn_save").addEventListener("click", saveProjectExplicitly);
+  document.getElementById("btn_protect").addEventListener("click", toggleEditProtect);
+
   // 基本情報の入力変更
   ["client_name", "project_name", "manager_name", "record_date"].forEach(id => {
     document.getElementById(id).addEventListener("input", () => {
@@ -70,9 +74,6 @@ document.addEventListener("DOMContentLoaded", () => {
       triggerAutoSave();
     });
   });
-
-  const saveBtn = document.getElementById("btn_save");
-  if (saveBtn) saveBtn.style.display = "none";
 
   // Google API クライアントの初期化起動
   gapi.load('client', initGapiClient);
@@ -158,6 +159,7 @@ async function syncFromGoogleSheets() {
     }
 
     renderProjectGrid();
+    startPolling();
   } catch (err) {
     console.error("Sheets同期エラー:", err);
     if (err.status === 401) {
@@ -209,7 +211,6 @@ function triggerAutoSave() {
         allProjectsInMemory[idx] = currentProject;
       }
     }
-    syncToGoogleSheets();
   }
 }
 
@@ -232,11 +233,13 @@ function clearUrlParam() {
 function showTopView() {
   document.getElementById("view_top").classList.remove("d-none");
   document.getElementById("view_edit").classList.add("d-none");
+  startPolling();
 }
 
 function showEditView() {
   document.getElementById("view_top").classList.add("d-none");
   document.getElementById("view_edit").classList.remove("d-none");
+  stopPolling();
 }
 
 function renderProjectGrid(filterWord = "") {
@@ -317,7 +320,7 @@ function buildProjectCard(proj) {
   const tagClass = { "制作": "tag-seisaku", "広告運用": "tag-koukoku", "複合": "tag-fukugo" }[pt] || "tag-seisaku";
 
   const card = document.createElement("div");
-  card.className = "project-card";
+  card.className = `project-card ${proj.isProtected ? "protected" : ""}`;
 
   card.innerHTML = `
     <div class="project-card-header">
@@ -344,16 +347,20 @@ function buildProjectCard(proj) {
       </div>
     </div>
     <div class="project-card-footer">
+      <button class="btn ${proj.isProtected ? 'btn-warning' : 'btn-secondary'} btn-xs protect-btn" data-id="${proj.id}">
+        ${proj.isProtected ? '🔒 保護中' : '🔓 保護'}
+      </button>
       <button class="btn btn-secondary btn-xs edit-btn" data-id="${proj.id}">✏️ 編集</button>
-      <button class="btn btn-danger btn-xs delete-btn" data-id="${proj.id}">🗑️ 削除</button>
+      <button class="btn btn-danger btn-xs delete-btn" data-id="${proj.id}" ${proj.isProtected ? 'disabled' : ''}>🗑️ 削除</button>
     </div>
   `;
 
   card.addEventListener("click", (e) => {
-    if (e.target.closest(".edit-btn") || e.target.closest(".delete-btn")) return;
+    if (e.target.closest(".protect-btn") || e.target.closest(".edit-btn") || e.target.closest(".delete-btn")) return;
     loadProjectIntoForm(proj.id);
     showEditView();
   });
+  card.querySelector(".protect-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleProjectProtectInline(proj.id); });
   card.querySelector(".edit-btn").addEventListener("click", (e) => { e.stopPropagation(); loadProjectIntoForm(proj.id); showEditView(); });
   card.querySelector(".delete-btn").addEventListener("click", (e) => { e.stopPropagation(); deleteProject(proj.id, proj.project_name); });
   return card;
@@ -701,13 +708,14 @@ function loadPlanIntoForm(index) {
 // =====================================================================
 
 function initNewProject() {
-  currentProject = { id: null, client_name: "", project_name: "", manager_name: "", record_date: todayStr(), activePlanIndex: 0, plans: [{ planName: "パターン 1", projectType: "制作", salesRows: [], internalRows: [], summary: {} }] };
+  currentProject = { id: null, client_name: "", project_name: "", manager_name: "", record_date: todayStr(), activePlanIndex: 0, plans: [{ planName: "パターン 1", projectType: "制作", salesRows: [], internalRows: [], summary: {} }], isProtected: false };
   document.getElementById("client_name").value  = "";
   document.getElementById("project_name").value = "";
   document.getElementById("manager_name").value = "";
   document.getElementById("record_date").value  = todayStr();
   clearUrlParam(); // 新規作成時はURLパラメータをクリア
   loadPlanIntoForm(0);
+  updateEditProtectButtonDisplay();
 }
 
 function loadProjectIntoForm(id) {
@@ -725,15 +733,51 @@ function loadProjectIntoForm(id) {
   updateUrlParam(id);
 
   loadPlanIntoForm(currentProject.activePlanIndex);
+  updateEditProtectButtonDisplay();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function deleteProject(id, name) {
-  if (!confirm(`案件「${name || "（無題）"}」を削除してもよろしいですか？`)) return;
-  allProjectsInMemory = allProjectsInMemory.filter(p => p.id !== id);
-  syncToGoogleSheets();
-  if (currentProject && currentProject.id === id) initNewProject();
-  renderProjectGrid(document.getElementById("search_input").value);
+async function deleteProject(id, name) {
+  if (!googleAccessToken) {
+    alert("Google連携がされていません。");
+    return;
+  }
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+    });
+    const rows = response.result.values;
+    let latestProjects = [];
+    if (rows && rows.length > 0 && rows[0][0]) {
+      latestProjects = JSON.parse(rows[0][0]);
+    }
+
+    const targetProj = latestProjects.find(p => p.id === id);
+    if (targetProj && targetProj.isProtected) {
+      alert(`案件「${name || "（無題）"}」は保護されているため削除できません。保護を解除してから削除してください。`);
+      renderProjectGrid(document.getElementById("search_input").value);
+      return;
+    }
+
+    if (!confirm(`案件「${name || "（無題）"}」を削除してもよろしいですか？`)) return;
+
+    allProjectsInMemory = latestProjects.filter(p => p.id !== id);
+    
+    const jsonStr = JSON.stringify(allProjectsInMemory);
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+      valueInputOption: 'RAW',
+      resource: { values: [[jsonStr]] }
+    });
+
+    if (currentProject && currentProject.id === id) initNewProject();
+    renderProjectGrid(document.getElementById("search_input").value);
+  } catch (err) {
+    console.error("削除エラー:", err);
+    alert("削除の実行に失敗しました。最新のデータを取得できませんでした。");
+  }
 }
 
 // =====================================================================
@@ -769,3 +813,197 @@ function importProjectJSON(event) {
 function todayStr() { return new Date().toISOString().split("T")[0]; }
 function escapeHtml(str) { return str ? str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") : ""; }
 function escapeAttr(str) { return str ? str.replace(/"/g, "&quot;") : ""; }
+
+// =====================================================================
+// 8. 複数人上書き競合防止・自動ポーリング・保護機能用 新規関数
+// =====================================================================
+
+function startPolling() {
+  if (pollingIntervalId) clearInterval(pollingIntervalId);
+  pollingIntervalId = setInterval(async () => {
+    console.log("定期自動同期（ポーリング）実行中...");
+    await syncFromGoogleSheetsSilent();
+  }, 30000); // 30秒間隔
+}
+
+function stopPolling() {
+  if (pollingIntervalId) {
+    console.log("定期自動同期（ポーリング）を停止しました。");
+    clearInterval(pollingIntervalId);
+    pollingIntervalId = null;
+  }
+}
+
+async function syncFromGoogleSheetsSilent() {
+  if (!googleAccessToken) return;
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+    });
+    const rows = response.result.values;
+    if (rows && rows.length > 0 && rows[0][0]) {
+      allProjectsInMemory = JSON.parse(rows[0][0]);
+    } else {
+      allProjectsInMemory = [];
+    }
+    
+    // TOP画面が表示されているときのみグリッドを再描画
+    const viewTop = document.getElementById("view_top");
+    if (viewTop && !viewTop.classList.contains("d-none")) {
+      renderProjectGrid(document.getElementById("search_input").value);
+    }
+  } catch (err) {
+    console.warn("自動同期（サイレント）エラー:", err);
+  }
+}
+
+async function saveProjectExplicitly() {
+  if (!currentProject) return;
+
+  saveCurrentPlanState();
+
+  const projName = document.getElementById("project_name").value.trim();
+  if (!projName) {
+    alert("案件名を入力してください。");
+    return;
+  }
+
+  currentProject.project_name = projName;
+  currentProject.client_name = document.getElementById("client_name").value.trim();
+  currentProject.manager_name = document.getElementById("manager_name").value.trim();
+  currentProject.record_date = document.getElementById("record_date").value.trim();
+
+  const saveBtn = document.getElementById("btn_save");
+  const origText = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "⏳ 保存中...";
+
+  try {
+    if (googleAccessToken) {
+      // 最新のデータを再取得して上書き競合を防ぐ
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Sheet1!A1',
+      });
+      const rows = response.result.values;
+      let latestProjects = [];
+      if (rows && rows.length > 0 && rows[0][0]) {
+        latestProjects = JSON.parse(rows[0][0]);
+      }
+
+      // 保護チェック：サーバー上ですでに保護されており、かつローカルで保護が解除されている（かつ以前とステータスが異なる）場合、
+      // 意図せぬ競合上書きを防ぐためブロックする
+      if (currentProject.id) {
+        const serverProj = latestProjects.find(p => p.id === currentProject.id);
+        if (serverProj && serverProj.isProtected && !currentProject.isProtected) {
+          alert("この案件は他のメンバーによって保護されています。保存するには先に保護を解除するか、一旦一覧に戻って状態を確認してください。");
+          saveBtn.disabled = false;
+          saveBtn.textContent = origText;
+          return;
+        }
+      }
+
+      // ID確定とタイムスタンプの更新
+      if (!currentProject.id) {
+        currentProject.id = "proj_" + Date.now();
+        currentProject.createdAt = new Date().toISOString();
+        currentProject.updatedAt = currentProject.createdAt;
+      } else {
+        currentProject.updatedAt = new Date().toISOString();
+      }
+
+      // 最新プロジェクトリストに現在のデータのみをマージ
+      const idx = latestProjects.findIndex(p => p.id === currentProject.id);
+      if (idx !== -1) {
+        latestProjects[idx] = currentProject;
+      } else {
+        latestProjects.push(currentProject);
+      }
+
+      allProjectsInMemory = latestProjects;
+
+      // 保存処理
+      const jsonStr = JSON.stringify(allProjectsInMemory);
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Sheet1!A1',
+        valueInputOption: 'RAW',
+        resource: { values: [[jsonStr]] }
+      });
+
+      updateUrlParam(currentProject.id);
+      updateEditProtectButtonDisplay();
+
+      saveBtn.textContent = "✅ 保存完了";
+      setTimeout(() => {
+        saveBtn.textContent = origText;
+        saveBtn.disabled = false;
+      }, 1500);
+    } else {
+      alert("Google連携がされていません。スプレッドシートへの保存はログインが必要です。");
+      saveBtn.disabled = false;
+      saveBtn.textContent = origText;
+    }
+  } catch (err) {
+    console.error("保存エラー:", err);
+    alert("スプレッドシートへの保存に失敗しました。通信状況を確認してください。");
+    saveBtn.disabled = false;
+    saveBtn.textContent = origText;
+  }
+}
+
+function toggleEditProtect() {
+  if (!currentProject) return;
+  currentProject.isProtected = !currentProject.isProtected;
+  updateEditProtectButtonDisplay();
+}
+
+function updateEditProtectButtonDisplay() {
+  const btn = document.getElementById("btn_protect");
+  if (!btn || !currentProject) return;
+  if (currentProject.isProtected) {
+    btn.textContent = "🔒 保護中";
+    btn.className = "btn btn-warning btn-sm";
+  } else {
+    btn.textContent = "🔓 保護";
+    btn.className = "btn btn-secondary btn-sm";
+  }
+}
+
+async function toggleProjectProtectInline(id) {
+  if (!googleAccessToken) {
+    alert("Google連携がされていません。");
+    return;
+  }
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+    });
+    const rows = response.result.values;
+    let latestProjects = [];
+    if (rows && rows.length > 0 && rows[0][0]) {
+      latestProjects = JSON.parse(rows[0][0]);
+    }
+
+    const targetProj = latestProjects.find(p => p.id === id);
+    if (targetProj) {
+      targetProj.isProtected = !targetProj.isProtected;
+      allProjectsInMemory = latestProjects;
+
+      const jsonStr = JSON.stringify(allProjectsInMemory);
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Sheet1!A1',
+        valueInputOption: 'RAW',
+        resource: { values: [[jsonStr]] }
+      });
+
+      renderProjectGrid(document.getElementById("search_input").value);
+    }
+  } catch (err) {
+    console.error("保護ステータス変更エラー:", err);
+    alert("保護状態の切り替えに失敗しました。通信状況を確認してください。");
+  }
+}

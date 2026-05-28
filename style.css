@@ -875,3 +875,34 @@ input[type="number"] { -moz-appearance: textfield; }
   outline: none;
   width: 120px;
 }
+
+/* ================================================================ */
+/* 保護機能用の追加スタイル                                         */
+/* ================================================================ */
+.project-card.protected {
+  border-color: #f59e0b !important;
+  background: #fffdf9 !important;
+}
+
+.project-card.protected .project-card-header::before {
+  content: "🔒 ";
+  font-size: 1.1rem;
+}
+
+.btn-warning {
+  background: #fde68a !important;
+  border-color: #f59e0b !important;
+  color: #78350f !important;
+}
+.btn-warning:hover {
+  background: #fcd34d !important;
+  border-color: #d97706 !important;
+}
+
+.btn:disabled, .btn[disabled] {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border-color: #cbd5e1 !important;
+  cursor: not-allowed !important;
+  opacity: 0.6;
+}
