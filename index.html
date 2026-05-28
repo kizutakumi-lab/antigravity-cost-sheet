@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>原価管理WEBアプリ - アンチグラビティ</title>
+  <title>WEBで原価管理くん - アンチグラビティ</title>
   <meta name="description" content="案件ごとの売上・外注費・社内費から粗利・営業利益を自動計算する原価管理ツール">
   <link rel="stylesheet" href="style.css">
   <script src="https://apis.google.com/js/api.js"></script>
@@ -15,7 +15,7 @@
     <div class="container">
       <header class="top-header">
         <div class="top-header-left">
-          <h1>📈 原価管理WEBアプリ</h1>
+          <h1>📈 WEBで原価管理くん</h1>
           <span class="app-subtitle">アンチグラビティ 案件収支シミュレーター (Googleドライブ自動同期)</span>
         </div>
         <div style="display: flex; gap: 10px;">
@@ -59,11 +59,12 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
           案件一覧へ
         </button>
-        <h1 class="edit-header-title">📈 原価管理WEBアプリ <span class="app-subtitle">案件収支シート</span></h1>
+        <h1 class="edit-header-title">📈 WEBで原価管理くん <span class="app-subtitle">案件収支シート</span></h1>
         <div class="edit-actions">
+          <span class="save-notice">ページを閉じる前に保存！⇒</span>
+          <button id="btn_save" class="btn btn-primary btn-save-large">💾 保存</button>
           <button id="btn_new_edit" class="btn btn-secondary btn-sm">新規</button>
           <button id="btn_protect" class="btn btn-secondary btn-sm">🔓 保護</button>
-          <button id="btn_save" class="btn btn-primary">💾 保存</button>
           <button id="btn_export" class="btn btn-secondary btn-sm">JSON出力</button>
           <button id="btn_import_trigger" class="btn btn-secondary btn-sm">JSON読込</button>
           <input type="file" id="json_file_input" class="d-none" accept=".json">

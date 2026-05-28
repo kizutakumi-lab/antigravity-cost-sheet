@@ -906,3 +906,38 @@ input[type="number"] { -moz-appearance: textfield; }
   cursor: not-allowed !important;
   opacity: 0.6;
 }
+
+/* ================================================================ */
+/* 保存ボタンおよび注意文の強調スタイル                              */
+/* ================================================================ */
+.save-notice {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--danger);
+  white-space: nowrap;
+  animation: pulse-notice 2s infinite;
+}
+
+@keyframes pulse-notice {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
+
+.btn-save-large {
+  padding: 10px 24px !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  background-color: #10b981 !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2), 0 2px 4px -1px rgba(16, 185, 129, 0.06) !important;
+  color: #fff !important;
+  transition: all 0.2s ease !important;
+}
+
+.btn-save-large:hover {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 10px -1px rgba(16, 185, 129, 0.3), 0 3px 6px -1px rgba(16, 185, 129, 0.1) !important;
+}
