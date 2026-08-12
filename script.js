@@ -131,18 +131,55 @@ function updateAuthButtonStatus(isConnected) {
 // 3. Googleスプレッドシート同期システム（全員で一元管理）
 // =====================================================================
 
+async function fetchProjectsFromGoogleSheets() {
+  const response = await gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Sheet1!A:A',
+  });
+  const rows = response.result.values;
+  if (rows && rows.length > 0) {
+    let fullJsonStr = "";
+    for (const row of rows) {
+      if (row[0]) fullJsonStr += row[0];
+    }
+    if (fullJsonStr) {
+      try {
+        return JSON.parse(fullJsonStr);
+      } catch (e) {
+        console.error("JSON parse error:", e);
+        return [];
+      }
+    }
+  }
+  return [];
+}
+
+async function saveProjectsToGoogleSheets(projects) {
+  const jsonStr = JSON.stringify(projects);
+  const chunkSize = 40000; // 50,000制限に対する安全なマージン
+  const chunks = [];
+  for (let i = 0; i < jsonStr.length; i += chunkSize) {
+    chunks.push([jsonStr.substring(i, i + chunkSize)]);
+  }
+
+  // 古いデータの残骸を防ぐため、A列全体をまずクリア
+  await gapi.client.sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Sheet1!A:A',
+  });
+
+  // 分割したデータをA1から順番に縦に流し込む
+  await gapi.client.sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Sheet1!A1',
+    valueInputOption: 'RAW',
+    resource: { values: chunks }
+  });
+}
+
 async function syncFromGoogleSheets() {
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-    });
-    const rows = response.result.values;
-    if (rows && rows.length > 0 && rows[0][0]) {
-      allProjectsInMemory = JSON.parse(rows[0][0]);
-    } else {
-      allProjectsInMemory = [];
-    }
+    allProjectsInMemory = await fetchProjectsFromGoogleSheets();
     
     // 🌟【直リンク対応】URLに `?id=xxxx` が含まれているかチェック
     const urlParams = new URLSearchParams(window.location.search);
@@ -176,14 +213,8 @@ async function syncFromGoogleSheets() {
 async function syncToGoogleSheets() {
   if (!googleAccessToken) return;
   
-  const jsonStr = JSON.stringify(allProjectsInMemory);
   try {
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-      valueInputOption: 'RAW',
-      resource: { values: [[jsonStr]] }
-    });
+    await saveProjectsToGoogleSheets(allProjectsInMemory);
     console.log("スプレッドシート共有DBに自動保存完了");
   } catch (err) {
     console.error("自動保存エラー:", err);
@@ -743,15 +774,7 @@ async function deleteProject(id, name) {
     return;
   }
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-    });
-    const rows = response.result.values;
-    let latestProjects = [];
-    if (rows && rows.length > 0 && rows[0][0]) {
-      latestProjects = JSON.parse(rows[0][0]);
-    }
+    let latestProjects = await fetchProjectsFromGoogleSheets();
 
     const targetProj = latestProjects.find(p => p.id === id);
     if (targetProj && targetProj.isProtected) {
@@ -763,14 +786,7 @@ async function deleteProject(id, name) {
     if (!confirm(`案件「${name || "（無題）"}」を削除してもよろしいですか？`)) return;
 
     allProjectsInMemory = latestProjects.filter(p => p.id !== id);
-    
-    const jsonStr = JSON.stringify(allProjectsInMemory);
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-      valueInputOption: 'RAW',
-      resource: { values: [[jsonStr]] }
-    });
+    await saveProjectsToGoogleSheets(allProjectsInMemory);
 
     if (currentProject && currentProject.id === id) initNewProject();
     renderProjectGrid(document.getElementById("search_input").value);
@@ -837,16 +853,7 @@ function stopPolling() {
 async function syncFromGoogleSheetsSilent() {
   if (!googleAccessToken) return;
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-    });
-    const rows = response.result.values;
-    if (rows && rows.length > 0 && rows[0][0]) {
-      allProjectsInMemory = JSON.parse(rows[0][0]);
-    } else {
-      allProjectsInMemory = [];
-    }
+    allProjectsInMemory = await fetchProjectsFromGoogleSheets();
     
     // TOP画面が表示されているときのみグリッドを再描画
     const viewTop = document.getElementById("view_top");
@@ -882,15 +889,7 @@ async function saveProjectExplicitly() {
   try {
     if (googleAccessToken) {
       // 最新のデータを再取得して上書き競合を防ぐ
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Sheet1!A1',
-      });
-      const rows = response.result.values;
-      let latestProjects = [];
-      if (rows && rows.length > 0 && rows[0][0]) {
-        latestProjects = JSON.parse(rows[0][0]);
-      }
+      let latestProjects = await fetchProjectsFromGoogleSheets();
 
       // 保護チェック：サーバー上ですでに保護されており、かつローカルで保護が解除されている（かつ以前とステータスが異なる）場合、
       // 意図せぬ競合上書きを防ぐためブロックする
@@ -924,13 +923,7 @@ async function saveProjectExplicitly() {
       allProjectsInMemory = latestProjects;
 
       // 保存処理
-      const jsonStr = JSON.stringify(allProjectsInMemory);
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Sheet1!A1',
-        valueInputOption: 'RAW',
-        resource: { values: [[jsonStr]] }
-      });
+      await saveProjectsToGoogleSheets(allProjectsInMemory);
 
       updateUrlParam(currentProject.id);
       updateEditProtectButtonDisplay();
@@ -977,28 +970,13 @@ async function toggleProjectProtectInline(id) {
     return;
   }
   try {
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Sheet1!A1',
-    });
-    const rows = response.result.values;
-    let latestProjects = [];
-    if (rows && rows.length > 0 && rows[0][0]) {
-      latestProjects = JSON.parse(rows[0][0]);
-    }
+    let latestProjects = await fetchProjectsFromGoogleSheets();
 
     const targetProj = latestProjects.find(p => p.id === id);
     if (targetProj) {
       targetProj.isProtected = !targetProj.isProtected;
       allProjectsInMemory = latestProjects;
-
-      const jsonStr = JSON.stringify(allProjectsInMemory);
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Sheet1!A1',
-        valueInputOption: 'RAW',
-        resource: { values: [[jsonStr]] }
-      });
+      await saveProjectsToGoogleSheets(allProjectsInMemory);
 
       renderProjectGrid(document.getElementById("search_input").value);
     }
