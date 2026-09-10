@@ -505,7 +505,7 @@ body {
 
 .sales-ext-header {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 180px;
   background: #e2e8f0;
   border: 1px solid var(--border);
   border-bottom: 2px solid var(--border);
@@ -515,7 +515,7 @@ body {
   color: #1e293b;
 }
 
-.col-sales-header, .col-ext-header {
+.col-sales-header, .col-ext-header, .col-profit-header {
   display: flex;
   padding: 10px 12px;
   gap: 8px;
@@ -523,6 +523,11 @@ body {
 }
 
 .col-sales-header { border-right: 2px solid var(--border); }
+.col-ext-header   { border-right: 2px solid var(--border); }
+.col-profit-header { justify-content: center; background: #cbd5e1; }
+.col-label-profit  { text-align: center; }
+
+.col-label-drag   { width: 50px; text-align: center; font-size: 0.78rem; flex-shrink: 0; }
 .col-label-item   { flex: 1; }
 .col-label-amount { width: 140px; text-align: right; }
 .col-label-del    { width: 36px; }
@@ -531,6 +536,18 @@ body {
   border: 1px solid var(--border);
   border-top: none;
   background: #fff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sales-block.dragging {
+  opacity: 0.4;
+  background: #e2e8f0;
+  border: 2px dashed var(--primary);
+}
+
+.sales-block.drag-over {
+  border-top: 3px solid var(--primary);
+  background: #eff6ff;
 }
 
 .sales-block:last-of-type {
@@ -539,7 +556,7 @@ body {
 
 .sales-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 180px;
   background: var(--sales-bg);
   border-bottom: 1px solid var(--border-lt);
 }
@@ -550,6 +567,107 @@ body {
   gap: 6px;
   padding: 8px 10px;
   border-right: 2px solid var(--border);
+}
+
+.sales-cell-right {
+  display: flex;
+  flex-direction: column;
+  border-right: 2px solid var(--border);
+}
+
+.sales-cell-profit {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8fafc;
+  text-align: center;
+  gap: 2px;
+}
+
+.sales-cell-profit.profit-plus {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.sales-cell-profit.profit-minus {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.sales-cell-profit.profit-zero {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.cell-profit-title {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.cell-profit-amount {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: 'Inter', monospace;
+  line-height: 1.2;
+}
+
+.cell-profit-rate {
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: 'Inter', monospace;
+}
+
+.drag-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 50px;
+  flex-shrink: 0;
+}
+
+.drag-handle {
+  cursor: grab;
+  user-select: none;
+  font-size: 1.1rem;
+  color: #64748b;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background .15s, color .15s;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}
+
+.move-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.btn-move {
+  background: none;
+  border: none;
+  font-size: 9px;
+  cursor: pointer;
+  padding: 0 2px;
+  color: #64748b;
+  border-radius: 2px;
+  line-height: 1;
+}
+
+.btn-move:hover {
+  background: #cbd5e1;
+  color: #1e293b;
 }
 
 .sales-cell-right {
@@ -579,6 +697,15 @@ body {
   justify-content: space-between;
   padding: 6px 10px;
   background: #f1f5f9;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ext-summary-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .ext-subtotal {
@@ -586,6 +713,36 @@ body {
   color: var(--text-muted);
 }
 .ext-subtotal strong { color: var(--text); font-weight: 700; }
+
+.sales-profit-badge {
+  font-size: 0.8rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sales-profit-badge.profit-plus {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.sales-profit-badge.profit-minus {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.sales-profit-badge.profit-zero {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
 
 .table-footer {
   display: flex;

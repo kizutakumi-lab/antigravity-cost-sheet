@@ -110,7 +110,8 @@ async function initGapiClient() {
 }
 
 function handleAuthClick() {
-  tokenClient.requestAccessToken({ prompt: googleAccessToken ? 'none' : 'consent' });
+  // 常にアカウント選択画面（select_account）を出して @dle.jp などの組織アカウントを選べるようにする
+  tokenClient.requestAccessToken({ prompt: 'select_account consent' });
 }
 
 function updateAuthButtonStatus(isConnected) {
@@ -397,6 +398,60 @@ function buildProjectCard(proj) {
   return card;
 }
 
+let draggedSalesBlock = null;
+
+function setupSalesBlockDragAndDrop(block) {
+  block.setAttribute("draggable", "true");
+
+  block.addEventListener("dragstart", (e) => {
+    draggedSalesBlock = block;
+    block.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "");
+  });
+
+  block.addEventListener("dragend", () => {
+    block.classList.remove("dragging");
+    document.querySelectorAll(".sales-block").forEach(b => b.classList.remove("drag-over"));
+    draggedSalesBlock = null;
+    triggerAutoSave();
+  });
+
+  block.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (!draggedSalesBlock || draggedSalesBlock === block) return;
+    e.dataTransfer.dropEffect = "move";
+
+    const container = document.getElementById("sales_rows_container");
+    const siblings = [...container.querySelectorAll(".sales-block:not(.dragging)")];
+    const nextSibling = siblings.find(sibling => {
+      const box = sibling.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
+    });
+
+    if (nextSibling) {
+      container.insertBefore(draggedSalesBlock, nextSibling);
+    } else {
+      container.appendChild(draggedSalesBlock);
+    }
+  });
+
+  block.addEventListener("dragenter", (e) => {
+    if (draggedSalesBlock && draggedSalesBlock !== block) {
+      block.classList.add("drag-over");
+    }
+  });
+
+  block.addEventListener("dragleave", () => {
+    block.classList.remove("drag-over");
+  });
+
+  block.addEventListener("drop", (e) => {
+    e.preventDefault();
+    block.classList.remove("drag-over");
+  });
+}
+
 function addSalesBlock(name = "", amount = "", extRows = []) {
   const container = document.getElementById("sales_rows_container");
   const block = document.createElement("div");
@@ -405,6 +460,13 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
   block.innerHTML = `
     <div class="sales-row">
       <div class="sales-cell-left">
+        <div class="drag-control">
+          <span class="drag-handle" title="ドラッグして並び替え">⠿</span>
+          <div class="move-btns">
+            <button type="button" class="btn-move btn-move-up" title="上に移動">▲</button>
+            <button type="button" class="btn-move btn-move-down" title="下に移動">▼</button>
+          </div>
+        </div>
         <input type="text" class="table-input input-name sales-name" placeholder="売上項目名" value="${escapeAttr(name)}">
         <input type="text" class="table-input input-amount sales-amount" placeholder="¥0" value="${formatInputCurrency(amount)}">
         <button class="btn btn-danger btn-icon-only sales-del-btn" title="売上行を削除"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -415,6 +477,11 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
           <button class="btn btn-secondary btn-xs ext-add-btn"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>外注を追加</button>
           <span class="ext-subtotal">外注小計: <strong class="ext-subtotal-val">¥0</strong></span>
         </div>
+      </div>
+      <div class="sales-cell-profit">
+        <span class="cell-profit-title">項目粗利</span>
+        <span class="cell-profit-amount sales-profit-val">¥0</span>
+        <span class="cell-profit-rate">粗利率: <strong class="sales-profit-rate">0.0%</strong></span>
       </div>
     </div>
   `;
@@ -430,12 +497,40 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
   });
 
   salesNameInp.addEventListener("input", () => { triggerAutoSave(); });
-  salesAmountInp.addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); triggerAutoSave(); });
+  salesAmountInp.addEventListener("input", (e) => { 
+    applyLiveCurrencyFormat(e.target); 
+    updateExtSubtotal(block);
+    triggerAutoSave(); 
+  });
   extAddBtn.addEventListener("click", () => addExtRow(block, extContainer));
+
+  // 上下移動ボタンのハンドラ
+  block.querySelector(".btn-move-up").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const prev = block.previousElementSibling;
+    if (prev && prev.classList.contains("sales-block")) {
+      container.insertBefore(block, prev);
+      triggerAutoSave();
+    }
+  });
+
+  block.querySelector(".btn-move-down").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const next = block.nextElementSibling;
+    if (next && next.classList.contains("sales-block")) {
+      container.insertBefore(next, block);
+      triggerAutoSave();
+    }
+  });
+
+  // ドラッグ＆ドロップ機能のセットアップ
+  setupSalesBlockDragAndDrop(block);
 
   container.appendChild(block);
   extRows.forEach(er => addExtRow(block, extContainer, er.name, er.amount));
   
+  updateExtSubtotal(block);
+
   if (!name && !amount) saveCurrentPlanState();
   calculateAndDisplay();
 }
@@ -461,9 +556,35 @@ function addExtRow(salesBlock, extContainer, name = "", amount = "") {
 }
 
 function updateExtSubtotal(salesBlock) {
-  let sub = 0;
-  salesBlock.querySelectorAll(".ext-amount").forEach(inp => { sub += parseNumber(inp.value); });
-  if (salesBlock.querySelector(".ext-subtotal-val")) salesBlock.querySelector(".ext-subtotal-val").textContent = formatCurrency(sub);
+  let extTotal = 0;
+  salesBlock.querySelectorAll(".ext-amount").forEach(inp => { extTotal += parseNumber(inp.value); });
+  
+  if (salesBlock.querySelector(".ext-subtotal-val")) {
+    salesBlock.querySelector(".ext-subtotal-val").textContent = formatCurrency(extTotal);
+  }
+
+  // 項目ごとの粗利・粗利率計算
+  const salesAmount = parseNumber(salesBlock.querySelector(".sales-amount")?.value);
+  const profit = salesAmount - extTotal;
+  const rate = salesAmount > 0 ? (profit / salesAmount) * 100 : null;
+
+  const profitValEl = salesBlock.querySelector(".sales-profit-val");
+  const profitRateEl = salesBlock.querySelector(".sales-profit-rate");
+  const profitCell = salesBlock.querySelector(".sales-cell-profit");
+
+  if (profitValEl) profitValEl.textContent = formatCurrency(profit);
+  if (profitRateEl) profitRateEl.textContent = formatPercent(rate);
+
+  if (profitCell) {
+    profitCell.classList.remove("profit-plus", "profit-minus", "profit-zero");
+    if (salesAmount === 0 && extTotal === 0) {
+      profitCell.classList.add("profit-zero");
+    } else if (profit < 0) {
+      profitCell.classList.add("profit-minus");
+    } else {
+      profitCell.classList.add("profit-plus");
+    }
+  }
 }
 
 function addInternalRow(rank = "", wage = "", hours = "") {
