@@ -110,8 +110,8 @@ async function initGapiClient() {
 }
 
 function handleAuthClick() {
-  // 常にアカウント選択画面（select_account）を出して @dle.jp などの組織アカウントを選べるようにする
-  tokenClient.requestAccessToken({ prompt: 'select_account consent' });
+  // アカウント選択画面を出しつつ、すでに許可済みであれば2枚目の同意画面をスキップする
+  tokenClient.requestAccessToken({ prompt: 'select_account' });
 }
 
 function updateAuthButtonStatus(isConnected) {
@@ -204,7 +204,7 @@ async function syncFromGoogleSheets() {
       localStorage.removeItem("gdrive_access_token");
       googleAccessToken = null;
       updateAuthButtonStatus(false);
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+      tokenClient.requestAccessToken({ prompt: '' });
     } else {
       alert("社内データベースとの同期に失敗しました。対象スプレッドシートのタブ名が「Sheet1」になっているか確認してください。");
     }
