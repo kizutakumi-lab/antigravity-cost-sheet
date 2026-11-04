@@ -196,17 +196,17 @@
           <div class="summary-card">
             <h2>📊 収支サマリー</h2>
             
-            <div class="summary-section-label">売上・外注</div>
-            <div class="summary-item">
+            <div class="summary-section-label">売上</div>
+            <div class="summary-item main">
               <span class="summary-label">売上総額</span>
               <span id="summary_total_sales" class="summary-value">¥0</span>
             </div>
+
+            <div class="summary-section-label">粗利 (売上 - 外注費)</div>
             <div class="summary-item sub">
               <span class="summary-label">└ 外注費総額</span>
               <span id="summary_total_outsourcing" class="summary-value">¥0</span>
             </div>
-
-            <div class="summary-section-label">粗利益</div>
             <div class="summary-item main">
               <span class="summary-label">粗利益額</span>
               <span id="summary_gross_profit" class="summary-value">¥0</span>
@@ -221,25 +221,42 @@
               <span id="gross_status_text" class="status-text-sm">データ未入力</span>
             </div>
 
-            <div class="summary-section-label summary-internal">社内原価</div>
-            <div class="summary-item">
-              <span class="summary-label">社内費総額</span>
+            <div class="summary-section-label summary-internal">直接利益 (粗利 - 社内費)</div>
+            <div class="summary-item sub">
+              <span class="summary-label">└ 社内費総額</span>
               <span id="summary_total_internal" class="summary-value">¥0</span>
             </div>
-
-            <div class="summary-section-label">営業利益</div>
             <div class="summary-item main">
-              <span class="summary-label">営業利益額</span>
-              <span id="summary_operating_profit" class="summary-value">¥0</span>
+              <span class="summary-label">直接利益額</span>
+              <span id="summary_direct_profit" class="summary-value">¥0</span>
             </div>
             <div class="summary-item sub">
-              <span class="summary-label">営業利益率</span>
-              <span id="summary_operating_profit_rate" class="summary-value">0.0%</span>
+              <span class="summary-label">直接利益率</span>
+              <span id="summary_direct_profit_rate" class="summary-value">0.0%</span>
             </div>
 
-            <div id="op_status_badge" class="status-badge-sm status-neutral">
-              <span class="status-title-sm">営利判定</span>
-              <span id="op_status_text" class="status-text-sm">データ未入力</span>
+            <div id="direct_status_badge" class="status-badge-sm status-neutral">
+              <span class="status-title-sm">直利判定</span>
+              <span id="direct_status_text" class="status-text-sm">データ未入力</span>
+            </div>
+
+            <div class="summary-section-label">事業利益 (直利 - 配賦)</div>
+            <div class="summary-item sub">
+              <span class="summary-label">└ 配賦額 (売上15%)</span>
+              <span id="summary_allocation" class="summary-value">¥0</span>
+            </div>
+            <div class="summary-item main">
+              <span class="summary-label">事業利益額</span>
+              <span id="summary_business_profit" class="summary-value">¥0</span>
+            </div>
+            <div class="summary-item sub">
+              <span class="summary-label">事業利益率</span>
+              <span id="summary_business_profit_rate" class="summary-value">0.0%</span>
+            </div>
+
+            <div id="business_status_badge" class="status-badge-sm status-neutral">
+              <span class="status-title-sm">事業利益判定</span>
+              <span id="business_status_text" class="status-text-sm">データ未入力</span>
             </div>
           </div>
         </aside>

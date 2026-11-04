@@ -16,9 +16,9 @@ const HOURLY_WAGE_MAP = {
 };
 
 const TYPE_THRESHOLDS = {
-  "制作": { gross: { good: 70, warn: 50 }, op: { good: 60, warn: 40 } },
-  "広告運用": { gross: { good: 20, warn: 10 }, op: null },
-  "複合": { gross: { good: 50, warn: 30 }, op: { good: 40, warn: 25 } }
+  "制作": { gross: { good: 70, warn: 50 }, direct: { good: 60, warn: 40 }, business: { good: 45, warn: 25 }, op: { good: 60, warn: 40 } },
+  "広告運用": { gross: { good: 20, warn: 10 }, direct: null, business: null, op: null },
+  "複合": { gross: { good: 50, warn: 30 }, direct: { good: 40, warn: 25 }, business: { good: 25, warn: 10 }, op: { good: 40, warn: 25 } }
 };
 
 // Google API接続用の設定
@@ -26,8 +26,17 @@ const GOOGLE_CLIENT_ID = "276815950800-td0eanufiu9m3p4pv3dckuo0je4s2bqt.apps.goo
 const SPREADSHEET_ID   = "1z_fYeAj4_RBRfla269yhctOsl5WZIBkKNCSe1wIi0yE";
 const SCOPES           = 'https://www.googleapis.com/auth/spreadsheets';
 
+// 認証＆24時間セッション管理定数
+const STORAGE_KEY_TOKEN         = "gdrive_access_token";
+const STORAGE_KEY_EXPIRES_AT    = "gdrive_token_expires_at";
+const STORAGE_KEY_SESSION_UNTIL = "gdrive_session_until";
+const SESSION_DURATION_MS       = 24 * 60 * 60 * 1000; // 24時間
+
 let tokenClient = null;
 let googleAccessToken = null;
+let isRefreshingToken = false;
+let refreshResolvers = [];
+let tokenMaintenanceIntervalId = null;
 
 let currentProject = null;
 let allProjectsInMemory = []; 
@@ -81,36 +90,171 @@ document.addEventListener("DOMContentLoaded", () => {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: SCOPES,
-    callback: (resp) => {
-      if (resp.error) return;
-      googleAccessToken = resp.access_token;
-      gapi.client.setToken({ access_token: googleAccessToken });
-      
-      localStorage.setItem("gdrive_access_token", googleAccessToken);
-      updateAuthButtonStatus(true);
-      syncFromGoogleSheets();
-    },
+    callback: handleTokenResponse,
   });
 
   showTopView();
 });
+
+// セッション・トークン管理ヘルパー
+function isSessionActive() {
+  const sessionUntil = parseInt(localStorage.getItem(STORAGE_KEY_SESSION_UNTIL) || "0", 10);
+  return !!sessionUntil && Date.now() < sessionUntil;
+}
+
+function isTokenNearExpiry() {
+  if (!googleAccessToken) return true;
+  const expiresAt = parseInt(localStorage.getItem(STORAGE_KEY_EXPIRES_AT) || "0", 10);
+  // 有効期限の5分前（300,000ms）を過ぎていたら再取得対象
+  return Date.now() > (expiresAt - 300000);
+}
+
+function saveAuthSession(accessToken, expiresInSec) {
+  googleAccessToken = accessToken;
+  gapi.client.setToken({ access_token: googleAccessToken });
+  
+  const expiresIn = (expiresInSec && !isNaN(expiresInSec)) ? parseInt(expiresInSec, 10) : 3599;
+  const expiresAt = Date.now() + (expiresIn * 1000);
+  
+  // 既存の有効な24時間セッションがあれば維持、なければ新規24時間後を設定
+  let sessionUntil = parseInt(localStorage.getItem(STORAGE_KEY_SESSION_UNTIL) || "0", 10);
+  if (!sessionUntil || sessionUntil < Date.now()) {
+    sessionUntil = Date.now() + SESSION_DURATION_MS;
+  }
+  
+  localStorage.setItem(STORAGE_KEY_TOKEN, googleAccessToken);
+  localStorage.setItem(STORAGE_KEY_EXPIRES_AT, String(expiresAt));
+  localStorage.setItem(STORAGE_KEY_SESSION_UNTIL, String(sessionUntil));
+  
+  updateAuthButtonStatus(true);
+}
+
+function clearAuthSession() {
+  googleAccessToken = null;
+  localStorage.removeItem(STORAGE_KEY_TOKEN);
+  localStorage.removeItem(STORAGE_KEY_EXPIRES_AT);
+  localStorage.removeItem(STORAGE_KEY_SESSION_UNTIL);
+  updateAuthButtonStatus(false);
+}
+
+function handleTokenResponse(resp) {
+  const resolvers = refreshResolvers.slice();
+  refreshResolvers = [];
+  isRefreshingToken = false;
+
+  if (resp.error) {
+    console.warn("OAuthトークン取得エラー:", resp.error);
+    resolvers.forEach(r => r.reject(new Error(resp.error)));
+    if (!isSessionActive() || isTokenNearExpiry()) {
+      clearAuthSession();
+    }
+    return;
+  }
+
+  saveAuthSession(resp.access_token, resp.expires_in);
+  resolvers.forEach(r => r.resolve(resp.access_token));
+  
+  // 初回データ未読み込みであれば同期
+  if (allProjectsInMemory.length === 0) {
+    syncFromGoogleSheets();
+  }
+}
+
+// バックグラウンドでサイレントにトークンを自動更新する関数
+function refreshAccessTokenSilently() {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) {
+      return reject(new Error("tokenClient が初期化されていません"));
+    }
+
+    refreshResolvers.push({ resolve, reject });
+    if (isRefreshingToken) return;
+    isRefreshingToken = true;
+
+    try {
+      tokenClient.requestAccessToken({ prompt: '' });
+    } catch (err) {
+      isRefreshingToken = false;
+      const resolvers = refreshResolvers.slice();
+      refreshResolvers = [];
+      resolvers.forEach(r => r.reject(err));
+    }
+  });
+}
+
+// API呼び出し前にトークンが新鮮であることを保証する
+async function ensureFreshToken() {
+  if (!isSessionActive()) {
+    clearAuthSession();
+    return false;
+  }
+
+  if (isTokenNearExpiry()) {
+    try {
+      await refreshAccessTokenSilently();
+      return true;
+    } catch (err) {
+      console.warn("トークンのサイレント更新に失敗しました。既存トークンで試行します:", err);
+      return !!googleAccessToken;
+    }
+  }
+  return true;
+}
+
+// 定期的にトークンを監視し、切れる前にサイレント更新するタイマー
+function startTokenMaintenance() {
+  if (tokenMaintenanceIntervalId) clearInterval(tokenMaintenanceIntervalId);
+  tokenMaintenanceIntervalId = setInterval(async () => {
+    if (isSessionActive() && isTokenNearExpiry()) {
+      console.log("トークン有効期限接近中：バックグラウンド自動サイレント更新を実行...");
+      try {
+        await refreshAccessTokenSilently();
+      } catch (e) {
+        console.warn("バックグラウンドトークン更新失敗:", e);
+      }
+    }
+  }, 60000); // 1分ごとにチェック
+}
 
 async function initGapiClient() {
   await gapi.client.init({ 
     discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"]
   });
   
-  const savedToken = localStorage.getItem("gdrive_access_token");
-  if (savedToken) {
-    googleAccessToken = savedToken;
-    gapi.client.setToken({ access_token: googleAccessToken });
-    updateAuthButtonStatus(true);
-    syncFromGoogleSheets();
+  if (isSessionActive()) {
+    const savedToken = localStorage.getItem(STORAGE_KEY_TOKEN);
+    if (savedToken && !isTokenNearExpiry()) {
+      googleAccessToken = savedToken;
+      gapi.client.setToken({ access_token: googleAccessToken });
+      updateAuthButtonStatus(true);
+      syncFromGoogleSheets();
+    } else {
+      // 24時間以内であれば初回ロード時にバックグラウンドでサイレント更新して接続
+      updateAuthButtonStatus(true);
+      try {
+        await refreshAccessTokenSilently();
+        syncFromGoogleSheets();
+      } catch (e) {
+        console.warn("初回サイレント更新失敗:", e);
+        if (savedToken) {
+          googleAccessToken = savedToken;
+          gapi.client.setToken({ access_token: googleAccessToken });
+          syncFromGoogleSheets();
+        } else {
+          updateAuthButtonStatus(false);
+        }
+      }
+    }
+  } else {
+    clearAuthSession();
   }
+
+  startTokenMaintenance();
 }
 
 function handleAuthClick() {
-  // アカウント選択画面を出しつつ、すでに許可済みであれば2枚目の同意画面をスキップする
+  // ユーザーが手動でログインボタンを押した時は新規24時間セッションを開始
+  localStorage.setItem(STORAGE_KEY_SESSION_UNTIL, String(Date.now() + SESSION_DURATION_MS));
   tokenClient.requestAccessToken({ prompt: 'select_account' });
 }
 
@@ -132,11 +276,7 @@ function updateAuthButtonStatus(isConnected) {
 // 3. Googleスプレッドシート同期システム（全員で一元管理）
 // =====================================================================
 
-async function fetchProjectsFromGoogleSheets() {
-  const response = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: 'Sheet1!A:A',
-  });
+function parseSheetsResponse(response) {
   const rows = response.result.values;
   if (rows && rows.length > 0) {
     let fullJsonStr = "";
@@ -155,27 +295,67 @@ async function fetchProjectsFromGoogleSheets() {
   return [];
 }
 
-async function saveProjectsToGoogleSheets(projects) {
-  const jsonStr = JSON.stringify(projects);
-  const chunkSize = 40000; // 50,000制限に対する安全なマージン
-  const chunks = [];
-  for (let i = 0; i < jsonStr.length; i += chunkSize) {
-    chunks.push([jsonStr.substring(i, i + chunkSize)]);
+async function fetchProjectsFromGoogleSheets() {
+  await ensureFreshToken();
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A:A',
+    });
+    return parseSheetsResponse(response);
+  } catch (err) {
+    if (err.status === 401 && isSessionActive()) {
+      console.log("fetchProjects: 401を検知、サイレント更新してリトライします...");
+      try {
+        await refreshAccessTokenSilently();
+        const retryResp = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: 'Sheet1!A:A',
+        });
+        return parseSheetsResponse(retryResp);
+      } catch (retryErr) {
+        console.error("リトライ取得失敗:", retryErr);
+        throw retryErr;
+      }
+    }
+    throw err;
   }
+}
 
-  // 古いデータの残骸を防ぐため、A列全体をまずクリア
-  await gapi.client.sheets.spreadsheets.values.clear({
-    spreadsheetId: SPREADSHEET_ID,
-    range: 'Sheet1!A:A',
-  });
+async function saveProjectsToGoogleSheets(projects) {
+  await ensureFreshToken();
+  const executeSave = async () => {
+    const jsonStr = JSON.stringify(projects);
+    const chunkSize = 40000;
+    const chunks = [];
+    for (let i = 0; i < jsonStr.length; i += chunkSize) {
+      chunks.push([jsonStr.substring(i, i + chunkSize)]);
+    }
 
-  // 分割したデータをA1から順番に縦に流し込む
-  await gapi.client.sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: 'Sheet1!A1',
-    valueInputOption: 'RAW',
-    resource: { values: chunks }
-  });
+    await gapi.client.sheets.spreadsheets.values.clear({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A:A',
+    });
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Sheet1!A1',
+      valueInputOption: 'RAW',
+      resource: { values: chunks }
+    });
+  };
+
+  try {
+    await executeSave();
+  } catch (err) {
+    if (err.status === 401 && isSessionActive()) {
+      console.log("saveProjects: 401を検知、サイレント更新してリトライします...");
+      await refreshAccessTokenSilently();
+      await executeSave();
+      return;
+    }
+    throw err;
+  }
 }
 
 async function syncFromGoogleSheets() {
@@ -201,10 +381,8 @@ async function syncFromGoogleSheets() {
   } catch (err) {
     console.error("Sheets同期エラー:", err);
     if (err.status === 401) {
-      localStorage.removeItem("gdrive_access_token");
-      googleAccessToken = null;
-      updateAuthButtonStatus(false);
-      tokenClient.requestAccessToken({ prompt: '' });
+      clearAuthSession();
+      alert("ログインの有効期限が切れました。再度「社内DBにログイン」を押してください。");
     } else {
       alert("社内データベースとの同期に失敗しました。対象スプレッドシートのタブ名が「Sheet1」になっているか確認してください。");
     }
@@ -341,15 +519,20 @@ function buildProjectCard(proj) {
   const activeIdx = proj.activePlanIndex || 0;
   const plan = proj.plans?.[activeIdx] || proj.plans?.[0] || {};
   const s  = plan.summary || {};
+  const tSales = s.totalSales ?? 0;
   const gm = s.grossMargin  ?? 0;
-  const om = s.opMargin     ?? 0;
-  const op = s.opProfit     ?? 0;
+  const dm = s.directMargin ?? s.opMargin ?? 0;
+  const dp = s.directProfit ?? s.opProfit ?? 0;
+  const alloc = s.allocation ?? Math.round(tSales * 0.15);
+  const bp = s.businessProfit ?? (dp - alloc);
+  const bm = s.businessMargin ?? (tSales > 0 ? (bp / tSales) * 100 : 0);
   const pt = plan.projectType || "制作";
   const th = TYPE_THRESHOLDS[pt] || TYPE_THRESHOLDS["制作"];
 
-  const grossCls = getRateClass(gm, th.gross, s.grossProfit ?? 0);
-  const opCls    = th.op ? getRateClass(om, th.op, op) : "val-neutral";
-  const tagClass = { "制作": "tag-seisaku", "広告運用": "tag-koukoku", "複合": "tag-fukugo" }[pt] || "tag-seisaku";
+  const grossCls  = getRateClass(gm, th.gross, s.grossProfit ?? 0);
+  const directCls = (th.direct || th.op) ? getRateClass(dm, th.direct || th.op, dp) : "val-neutral";
+  const bizCls    = th.business ? getRateClass(bm, th.business, bp) : (tSales > 0 ? (bp < 0 ? "val-critical" : "val-good") : "val-neutral");
+  const tagClass  = { "制作": "tag-seisaku", "広告運用": "tag-koukoku", "複合": "tag-fukugo" }[pt] || "tag-seisaku";
 
   const card = document.createElement("div");
   card.className = `project-card ${proj.isProtected ? "protected" : ""}`;
@@ -367,15 +550,19 @@ function buildProjectCard(proj) {
     <div class="project-card-metrics">
       <div class="metric-box">
         <span class="metric-label">売上総額</span>
-        <span class="metric-value">${formatCurrency(s.totalSales ?? 0)}</span>
+        <span class="metric-value">${formatCurrency(tSales)}</span>
       </div>
       <div class="metric-box">
         <span class="metric-label">粗利率</span>
         <span class="metric-value ${grossCls}">${formatPercent(gm)}</span>
       </div>
       <div class="metric-box">
-        <span class="metric-label">営利率</span>
-        <span class="metric-value ${opCls}">${th.op ? formatPercent(om) : "-"}</span>
+        <span class="metric-label">直利率</span>
+        <span class="metric-value ${directCls}">${(th.direct || th.op) ? formatPercent(dm) : "-"}</span>
+      </div>
+      <div class="metric-box">
+        <span class="metric-label">事業利益率</span>
+        <span class="metric-value ${bizCls}">${th.business ? formatPercent(bm) : (tSales > 0 ? formatPercent(bm) : "-")}</span>
       </div>
     </div>
     <div class="project-card-footer">
@@ -502,6 +689,13 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
     updateExtSubtotal(block);
     triggerAutoSave(); 
   });
+  salesAmountInp.addEventListener("blur", (e) => {
+    if (e.target.value === "-" || e.target.value === "-¥" || e.target.value === "¥") {
+      e.target.value = "";
+      updateExtSubtotal(block);
+      triggerAutoSave();
+    }
+  });
   extAddBtn.addEventListener("click", () => addExtRow(block, extContainer));
 
   // 上下移動ボタンのハンドラ
@@ -546,6 +740,13 @@ function addExtRow(salesBlock, extContainer, name = "", amount = "") {
   `;
 
   row.querySelector(".ext-amount").addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); updateExtSubtotal(salesBlock); triggerAutoSave(); });
+  row.querySelector(".ext-amount").addEventListener("blur", (e) => {
+    if (e.target.value === "-" || e.target.value === "-¥" || e.target.value === "¥") {
+      e.target.value = "";
+      updateExtSubtotal(salesBlock);
+      triggerAutoSave();
+    }
+  });
   row.querySelector(".ext-name").addEventListener("input", () => { triggerAutoSave(); });
   row.querySelector(".ext-del-btn").addEventListener("click", () => { row.remove(); updateExtSubtotal(salesBlock); triggerAutoSave(); });
 
@@ -566,6 +767,7 @@ function updateExtSubtotal(salesBlock) {
   // 項目ごとの粗利・粗利率計算
   const salesAmount = parseNumber(salesBlock.querySelector(".sales-amount")?.value);
   const profit = salesAmount - extTotal;
+  // 売上がプラスの場合のみ粗利率を計算（値引き・マイナス行や0の場合は「-」表示）
   const rate = salesAmount > 0 ? (profit / salesAmount) * 100 : null;
 
   const profitValEl = salesBlock.querySelector(".sales-profit-val");
@@ -625,24 +827,90 @@ function addInternalRow(rank = "", wage = "", hours = "") {
 }
 
 function parseNumber(val) {
-  if (!val) return 0;
-  const n = parseFloat(String(val).replace(/[¥,]/g, ""));
-  return isNaN(n) ? 0 : n;
+  if (val === null || val === undefined || val === "") return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  let str = String(val)
+    .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/[¥,￥\s]/g, "")
+    .replace(/[ー−―－▲△]/g, "-");
+  
+  const isNegative = str.includes("-");
+  const cleaned = str.replace(/[^\d.]/g, "");
+  if (!cleaned) return 0;
+  const n = parseFloat(cleaned);
+  if (isNaN(n)) return 0;
+  return isNegative ? -n : n;
 }
 
 function formatCurrency(amount) {
-  return "¥" + Math.round(parseNumber(amount)).toLocaleString("ja-JP");
+  const n = Math.round(parseNumber(amount));
+  if (n < 0) {
+    return "-¥" + Math.abs(n).toLocaleString("ja-JP");
+  }
+  return "¥" + n.toLocaleString("ja-JP");
 }
 
 function formatInputCurrency(amount) {
-  if (!amount) return "";
+  if (amount === "" || amount === null || amount === undefined) return "";
   const n = Math.round(parseNumber(amount));
-  return n === 0 ? "" : "¥" + n.toLocaleString("ja-JP");
+  if (n === 0 && amount !== 0 && amount !== "0") return "";
+  if (n < 0) {
+    return "-¥" + Math.abs(n).toLocaleString("ja-JP");
+  }
+  return "¥" + n.toLocaleString("ja-JP");
 }
 
 function applyLiveCurrencyFormat(inputEl) {
-  let nums = inputEl.value.replace(/[^\d]/g, "");
-  inputEl.value = nums === "" ? "" : "¥" + parseInt(nums, 10).toLocaleString("ja-JP");
+  const raw = inputEl.value;
+  const selStart = inputEl.selectionStart ?? raw.length;
+
+  const textBeforeCursor = raw.slice(0, selStart);
+  const normBefore = textBeforeCursor
+    .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/[ー−―－▲△]/g, "-");
+  const digitsBefore = (normBefore.match(/\d/g) || []).length;
+
+  const normAll = raw
+    .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+    .replace(/[ー−―－▲△]/g, "-");
+
+  const isNegative = normAll.includes("-");
+  const digitsOnly = normAll.replace(/[^\d]/g, "");
+
+  if (!digitsOnly) {
+    if (isNegative) {
+      inputEl.value = "-";
+      inputEl.setSelectionRange(1, 1);
+    } else {
+      inputEl.value = "";
+    }
+    return;
+  }
+
+  const numVal = parseInt(digitsOnly, 10);
+  const formattedDigits = numVal.toLocaleString("ja-JP");
+  const prefix = isNegative ? "-¥" : "¥";
+  const formattedVal = prefix + formattedDigits;
+
+  inputEl.value = formattedVal;
+
+  let targetPos = prefix.length;
+  let countedDigits = 0;
+  for (let i = prefix.length; i < formattedVal.length; i++) {
+    if (/\d/.test(formattedVal[i])) {
+      countedDigits++;
+      if (countedDigits === digitsBefore) {
+        targetPos = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (digitsBefore === 0) {
+    targetPos = prefix.length;
+  }
+
+  inputEl.setSelectionRange(targetPos, targetPos);
 }
 
 function formatPercent(rate) {
@@ -659,33 +927,87 @@ function calculateAndDisplay() {
   document.getElementById("outsourcing_total_display").textContent = formatCurrency(tOut);
   document.getElementById("internal_total_display").textContent = formatCurrency(tInt);
 
+  // 1. 売上: tSales
+  // 2. 粗利 (売上 - 外注費)
   const grossProfit = tSales - tOut;
-  const opProfit    = tSales - tOut - tInt;
   const grossMargin = tSales > 0 ? (grossProfit / tSales) * 100 : null;
-  const opMargin    = tSales > 0 ? (opProfit    / tSales) * 100 : null;
 
-  document.getElementById("summary_total_sales").textContent = formatCurrency(tSales);
-  document.getElementById("summary_total_outsourcing").textContent = formatCurrency(tOut);
-  document.getElementById("summary_gross_profit").textContent = formatCurrency(grossProfit);
-  document.getElementById("summary_gross_profit_rate").textContent = formatPercent(grossMargin);
-  document.getElementById("summary_total_internal").textContent = formatCurrency(tInt);
-  document.getElementById("summary_operating_profit").textContent = formatCurrency(opProfit);
-  document.getElementById("summary_operating_profit_rate").textContent = formatPercent(opMargin);
+  // 3. 直接利益 (粗利 - 社内費)
+  const directProfit = grossProfit - tInt;
+  const directMargin = tSales > 0 ? (directProfit / tSales) * 100 : null;
 
-  updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin);
+  // 4. 事業利益 (直利 - 配賦) ※配賦は売上の15%自動計算
+  const allocation = Math.round(tSales * 0.15);
+  const businessProfit = directProfit - allocation;
+  const businessMargin = tSales > 0 ? (businessProfit / tSales) * 100 : null;
+
+  // ① 売上
+  const elTotalSales = document.getElementById("summary_total_sales");
+  if (elTotalSales) elTotalSales.textContent = formatCurrency(tSales);
+
+  // ② 粗利
+  const elTotalOut = document.getElementById("summary_total_outsourcing");
+  if (elTotalOut) elTotalOut.textContent = formatCurrency(tOut);
+  const elGrossProfit = document.getElementById("summary_gross_profit");
+  if (elGrossProfit) elGrossProfit.textContent = formatCurrency(grossProfit);
+  const elGrossMargin = document.getElementById("summary_gross_profit_rate");
+  if (elGrossMargin) elGrossMargin.textContent = formatPercent(grossMargin);
+
+  // ③ 直接利益
+  const elTotalInt = document.getElementById("summary_total_internal");
+  if (elTotalInt) elTotalInt.textContent = formatCurrency(tInt);
+  const elDirectProfit = document.getElementById("summary_direct_profit");
+  if (elDirectProfit) elDirectProfit.textContent = formatCurrency(directProfit);
+  const elDirectMargin = document.getElementById("summary_direct_profit_rate");
+  if (elDirectMargin) elDirectMargin.textContent = formatPercent(directMargin);
+
+  // 旧ID互換（もし要素が存在していれば更新）
+  const elOpProfit = document.getElementById("summary_operating_profit");
+  if (elOpProfit) elOpProfit.textContent = formatCurrency(directProfit);
+  const elOpMargin = document.getElementById("summary_operating_profit_rate");
+  if (elOpMargin) elOpMargin.textContent = formatPercent(directMargin);
+
+  // ④ 事業利益
+  const elAlloc = document.getElementById("summary_allocation");
+  if (elAlloc) elAlloc.textContent = formatCurrency(allocation);
+  const elBusinessProfit = document.getElementById("summary_business_profit");
+  if (elBusinessProfit) elBusinessProfit.textContent = formatCurrency(businessProfit);
+  const elBusinessMargin = document.getElementById("summary_business_profit_rate");
+  if (elBusinessMargin) elBusinessMargin.textContent = formatPercent(businessMargin);
+
+  updateStatusBadges(grossProfit, grossMargin, directProfit, directMargin, businessProfit, businessMargin);
 }
 
-function updateStatusBadges(grossProfit, grossMargin, opProfit, opMargin) {
+function updateStatusBadges(grossProfit, grossMargin, directProfit, directMargin, businessProfit, businessMargin) {
   const pt = document.getElementById("project_type")?.value || "制作";
   const th = TYPE_THRESHOLDS[pt] || TYPE_THRESHOLDS["制作"];
+  
+  // 粗利判定
   setStatusBadge(document.getElementById("gross_status_badge"), document.getElementById("gross_status_text"), grossProfit, grossMargin, th.gross, "粗利");
   
-  const opBadge = document.getElementById("op_status_badge");
-  if (th.op === null) {
-    opBadge.className = "status-badge-sm status-neutral d-none";
+  // 直利判定（旧営利判定）
+  const directBadge = document.getElementById("direct_status_badge") || document.getElementById("op_status_badge");
+  const directText = document.getElementById("direct_status_text") || document.getElementById("op_status_text");
+  const directTh = th.direct || th.op;
+  if (!directTh) {
+    if (directBadge) directBadge.className = "status-badge-sm status-neutral d-none";
   } else {
-    opBadge.classList.remove("d-none");
-    setStatusBadge(opBadge, document.getElementById("op_status_text"), opProfit, opMargin, th.op, "営利");
+    if (directBadge) {
+      directBadge.classList.remove("d-none");
+      setStatusBadge(directBadge, directText, directProfit, directMargin, directTh, "直利");
+    }
+  }
+
+  // 事業利益判定
+  const bizBadge = document.getElementById("business_status_badge");
+  const bizText = document.getElementById("business_status_text");
+  if (bizBadge && bizText) {
+    if (th.business === null) {
+      bizBadge.className = "status-badge-sm status-neutral d-none";
+    } else {
+      bizBadge.classList.remove("d-none");
+      setStatusBadge(bizBadge, bizText, businessProfit, businessMargin, th.business, "事利");
+    }
   }
 }
 
@@ -722,9 +1044,9 @@ function saveCurrentPlanState() {
     block.querySelectorAll(".ext-row").forEach(extRow => {
       const eName = extRow.querySelector(".ext-name")?.value.trim() || "";
       const eAmount = parseNumber(extRow.querySelector(".ext-amount")?.value);
-      if (eName || eAmount > 0) outsourcingRows.push({ name: eName, amount: eAmount });
+      if (eName || eAmount !== 0) outsourcingRows.push({ name: eName, amount: eAmount });
     });
-    if (name || amount > 0 || outsourcingRows.length > 0) salesRows.push({ name, amount, outsourcingRows });
+    if (name || amount !== 0 || outsourcingRows.length > 0) salesRows.push({ name, amount, outsourcingRows });
   });
 
   const internalRows = [];
@@ -739,11 +1061,34 @@ function saveCurrentPlanState() {
   salesRows.forEach(r => { tSales += r.amount; (r.outsourcingRows || []).forEach(er => { tOut += er.amount; }); });
   internalRows.forEach(r => { tInt += Math.round(r.wage * r.hours); });
 
+  const grossProfit = tSales - tOut;
+  const directProfit = grossProfit - tInt;
+  const allocation = Math.round(tSales * 0.15);
+  const businessProfit = directProfit - allocation;
+
+  const grossMargin = tSales > 0 ? ((grossProfit) / tSales) * 100 : 0;
+  const directMargin = tSales > 0 ? ((directProfit) / tSales) * 100 : 0;
+  const businessMargin = tSales > 0 ? ((businessProfit) / tSales) * 100 : 0;
+
   currentProject.plans[activeIdx] = {
     planName: currentProject.plans[activeIdx]?.planName || `パターン ${activeIdx + 1}`,
     projectType: document.getElementById("project_type").value,
     salesRows, internalRows,
-    summary: { totalSales: tSales, totalOutsourcing: tOut, totalInternal: tInt, grossProfit: tSales - tOut, grossMargin: tSales > 0 ? ((tSales - tOut)/tSales)*100 : 0, opProfit: tSales - tOut - tInt, opMargin: tSales > 0 ? ((tSales - tOut - tInt)/tSales)*100 : 0 }
+    summary: { 
+      totalSales: tSales, 
+      totalOutsourcing: tOut, 
+      totalInternal: tInt, 
+      grossProfit: grossProfit, 
+      grossMargin: grossMargin, 
+      directProfit: directProfit,
+      directMargin: directMargin,
+      allocation: allocation,
+      businessProfit: businessProfit,
+      businessMargin: businessMargin,
+      // 過去データ互換用プロパティ
+      opProfit: directProfit, 
+      opMargin: directMargin 
+    }
   };
 }
 
@@ -822,14 +1167,23 @@ function renderComparisonSummary() {
   container.innerHTML = "";
   currentProject.plans.forEach((plan, idx) => {
     const s = plan.summary || {};
+    const tSales = s.totalSales ?? 0;
+    const gm = s.grossMargin ?? 0;
+    const dm = s.directMargin ?? s.opMargin ?? 0;
+    const dp = s.directProfit ?? s.opProfit ?? 0;
+    const alloc = s.allocation ?? Math.round(tSales * 0.15);
+    const bp = s.businessProfit ?? (dp - alloc);
+    const bm = s.businessMargin ?? (tSales > 0 ? (bp / tSales) * 100 : 0);
+
     const item = document.createElement("div");
     item.className = `comparison-item ${idx === currentProject.activePlanIndex ? "active" : ""}`;
     item.innerHTML = `
       <div class="comp-title">${escapeHtml(plan.planName)}</div>
       <div class="comp-metrics">
-        <div class="comp-metric"><span class="comp-lbl">売上:</span> <strong>${formatCurrency(s.totalSales ?? 0)}</strong></div>
-        <div class="comp-metric"><span class="comp-lbl">粗利:</span> <strong class="val-good">${formatPercent(s.grossMargin ?? 0)}</strong></div>
-        <div class="comp-metric"><span class="comp-lbl">営利:</span> <strong class="val-warning">${formatPercent(s.opMargin ?? 0)}</strong></div>
+        <div class="comp-metric"><span class="comp-lbl">売上:</span> <strong>${formatCurrency(tSales)}</strong></div>
+        <div class="comp-metric"><span class="comp-lbl">粗利:</span> <strong class="val-good">${formatPercent(gm)}</strong></div>
+        <div class="comp-metric"><span class="comp-lbl">直利:</span> <strong class="val-warning">${formatPercent(dm)}</strong></div>
+        <div class="comp-metric"><span class="comp-lbl">事利:</span> <strong class="${bp < 0 ? 'val-critical' : 'val-good'}">${formatPercent(bm)}</strong></div>
       </div>`;
     item.addEventListener("click", () => switchPlan(idx));
     container.appendChild(item);
@@ -890,6 +1244,9 @@ function loadProjectIntoForm(id) {
 }
 
 async function deleteProject(id, name) {
+  if (!googleAccessToken && isSessionActive()) {
+    await ensureFreshToken();
+  }
   if (!googleAccessToken) {
     alert("Google連携がされていません。");
     return;
@@ -1008,6 +1365,10 @@ async function saveProjectExplicitly() {
   saveBtn.textContent = "⏳ 保存中...";
 
   try {
+    if (!googleAccessToken && isSessionActive()) {
+      await ensureFreshToken();
+    }
+
     if (googleAccessToken) {
       // 最新のデータを再取得して上書き競合を防ぐ
       let latestProjects = await fetchProjectsFromGoogleSheets();
@@ -1086,6 +1447,9 @@ function updateEditProtectButtonDisplay() {
 }
 
 async function toggleProjectProtectInline(id) {
+  if (!googleAccessToken && isSessionActive()) {
+    await ensureFreshToken();
+  }
   if (!googleAccessToken) {
     alert("Google連携がされていません。");
     return;

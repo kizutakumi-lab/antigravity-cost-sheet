@@ -2,3 +2,5 @@
 .vercel/
 *.log
 .DS_Store
+local-server.js
+
