@@ -777,6 +777,17 @@ body {
   border-radius: var(--r-sm);
   outline: none;
   transition: border-color .15s, box-shadow .15s;
+  box-sizing: border-box;
+}
+
+textarea.table-input {
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.4;
+  min-height: 33px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  display: block;
 }
 
 .table-input:focus {

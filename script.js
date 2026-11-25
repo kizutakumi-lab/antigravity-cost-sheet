@@ -639,6 +639,17 @@ function setupSalesBlockDragAndDrop(block) {
   });
 }
 
+function autoResizeTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  const borderOffset = (el.offsetHeight - el.clientHeight) || 2;
+  el.style.height = Math.max(33, el.scrollHeight + borderOffset) + "px";
+}
+
+window.addEventListener("resize", () => {
+  document.querySelectorAll(".sales-name, .ext-name").forEach(autoResizeTextarea);
+});
+
 function addSalesBlock(name = "", amount = "", extRows = []) {
   const container = document.getElementById("sales_rows_container");
   const block = document.createElement("div");
@@ -654,7 +665,7 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
             <button type="button" class="btn-move btn-move-down" title="下に移動">▼</button>
           </div>
         </div>
-        <input type="text" class="table-input input-name sales-name" placeholder="売上項目名" value="${escapeAttr(name)}">
+        <textarea class="table-input input-name sales-name" placeholder="売上項目名" rows="1">${escapeHtml(name)}</textarea>
         <input type="text" class="table-input input-amount sales-amount" placeholder="¥0" value="${formatInputCurrency(amount)}">
         <button class="btn btn-danger btn-icon-only sales-del-btn" title="売上行を削除"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
@@ -683,7 +694,17 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
     block.remove(); triggerAutoSave();
   });
 
-  salesNameInp.addEventListener("input", () => { triggerAutoSave(); });
+  salesNameInp.addEventListener("input", (e) => { 
+    autoResizeTextarea(e.target);
+    triggerAutoSave(); 
+  });
+  salesNameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      salesAmountInp.focus();
+    }
+  });
+
   salesAmountInp.addEventListener("input", (e) => { 
     applyLiveCurrencyFormat(e.target); 
     updateExtSubtotal(block);
@@ -721,6 +742,7 @@ function addSalesBlock(name = "", amount = "", extRows = []) {
   setupSalesBlockDragAndDrop(block);
 
   container.appendChild(block);
+  autoResizeTextarea(salesNameInp);
   extRows.forEach(er => addExtRow(block, extContainer, er.name, er.amount));
   
   updateExtSubtotal(block);
@@ -734,23 +756,36 @@ function addExtRow(salesBlock, extContainer, name = "", amount = "") {
   row.className = "ext-row";
   row.innerHTML = `
     <span class="ext-indent">└</span>
-    <input type="text" class="table-input input-name ext-name" placeholder="外注項目名" value="${escapeAttr(name)}">
+    <textarea class="table-input input-name ext-name" placeholder="外注項目名" rows="1">${escapeHtml(name)}</textarea>
     <input type="text" class="table-input input-amount ext-amount" placeholder="¥0" value="${formatInputCurrency(amount)}">
     <button class="btn btn-danger btn-icon-only ext-del-btn" title="外注行を削除"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
   `;
 
-  row.querySelector(".ext-amount").addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); updateExtSubtotal(salesBlock); triggerAutoSave(); });
-  row.querySelector(".ext-amount").addEventListener("blur", (e) => {
+  const extNameInp = row.querySelector(".ext-name");
+  const extAmountInp = row.querySelector(".ext-amount");
+
+  extAmountInp.addEventListener("input", (e) => { applyLiveCurrencyFormat(e.target); updateExtSubtotal(salesBlock); triggerAutoSave(); });
+  extAmountInp.addEventListener("blur", (e) => {
     if (e.target.value === "-" || e.target.value === "-¥" || e.target.value === "¥") {
       e.target.value = "";
       updateExtSubtotal(salesBlock);
       triggerAutoSave();
     }
   });
-  row.querySelector(".ext-name").addEventListener("input", () => { triggerAutoSave(); });
+  extNameInp.addEventListener("input", (e) => { 
+    autoResizeTextarea(e.target);
+    triggerAutoSave(); 
+  });
+  extNameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      extAmountInp.focus();
+    }
+  });
   row.querySelector(".ext-del-btn").addEventListener("click", () => { row.remove(); updateExtSubtotal(salesBlock); triggerAutoSave(); });
 
   extContainer.appendChild(row);
+  autoResizeTextarea(extNameInp);
   updateExtSubtotal(salesBlock);
   if (!name && !amount) saveCurrentPlanState();
   calculateAndDisplay();
@@ -1207,6 +1242,9 @@ function loadPlanIntoForm(index) {
   calculateAndDisplay();
   renderTabs();
   renderComparisonSummary();
+  requestAnimationFrame(() => {
+    document.querySelectorAll(".sales-name, .ext-name").forEach(autoResizeTextarea);
+  });
 }
 
 // =====================================================================
